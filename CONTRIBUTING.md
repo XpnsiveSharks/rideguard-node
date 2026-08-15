@@ -74,3 +74,7 @@ consistent.
 - [ ] `yarn test` passes
 - [ ] No stray `console.log` or commented-out code
 - [ ] PR targets `development` and describes what changed and how to test it
+
+## Suggested VScode extensions
+
+- Prettier - Code formatter (prettier.io)
