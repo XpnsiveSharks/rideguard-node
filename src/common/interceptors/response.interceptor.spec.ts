@@ -60,3 +60,6 @@ describe('ResponseInterceptor', () => {
     });
   });
 });
+
+// NOTES: to run this test, use the following command in your terminal:
+// yarn test response.interceptor
