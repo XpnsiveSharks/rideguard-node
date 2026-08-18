@@ -24,9 +24,10 @@ async function bootstrap() {
   const port = configService.get('PORT', { infer: true });
   const nodeEnv = configService.get('NODE_ENV', { infer: true });
   const apiVersion = configService.get('API_VERSION', { infer: true });
+  const corsOrigins = configService.get('CORS_ORIGINS', { infer: true });
 
   app.enableCors({
-    origin: nodeEnv === 'production' ? ['https://replace-frontend.com'] : '*',
+    origin: corsOrigins === '*' ? '*' : corsOrigins.split(',').map((origin) => origin.trim()),
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-country-origin'],
   });
