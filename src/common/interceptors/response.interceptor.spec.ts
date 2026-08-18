@@ -17,7 +17,7 @@ function createCallHandler(data: unknown): CallHandler {
 }
 
 describe('ResponseInterceptor', () => {
-  it('wraps the handler result with the default success message', (done) => {
+  it('wraps the handler result with the default success message and timestamps', (done) => {
     const interceptor = new ResponseInterceptor(new Reflector());
     const context = createExecutionContext();
 
@@ -26,7 +26,9 @@ describe('ResponseInterceptor', () => {
         success: true,
         message: 'Request completed successfully',
         data: { id: 1 },
+        timestamp: expect.any(String),
       });
+      expect(Number.isNaN(Date.parse(result.timestamp))).toBe(false);
       done();
     });
   });
