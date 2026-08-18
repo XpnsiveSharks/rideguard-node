@@ -5,6 +5,7 @@ interface ErrorResponseBody {
   success: false;
   message: string;
   statusCode: number;
+  timestamp: string;
 }
 
 /* Catches NestJS HTTP exceptions (NotFoundException, UnauthorizedException,
@@ -16,11 +17,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
   catch(exception: HttpException, host: ArgumentsHost): void {
     const response = host.switchToHttp().getResponse<Response>();
     const statusCode = exception.getStatus();
+    const now = new Date();
 
     const body: ErrorResponseBody = {
       success: false,
       message: extractMessage(exception),
       statusCode,
+      timestamp: now.toISOString(),
     };
 
     response.status(statusCode).json(body);

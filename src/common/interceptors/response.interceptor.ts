@@ -10,6 +10,7 @@ export interface StandardResponse<T> {
   success: true;
   message: string;
   data: T;
+  timestamp: string;
 }
 
 // Wraps every successful response in a consistent envelope.
@@ -22,13 +23,17 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, StandardRespon
       context.getHandler(),
       context.getClass(),
     ]);
-
     return next.handle().pipe(
-      map((data) => ({
-        success: true,
-        message: message ?? DEFAULT_SUCCESS_MESSAGE,
-        data: (data ?? {}) as T,
-      })),
+      map((data) => {
+        const now = new Date();
+
+        return {
+          success: true,
+          message: message ?? DEFAULT_SUCCESS_MESSAGE,
+          data: (data ?? {}) as T,
+          timestamp: now.toISOString(),
+        };
+      }),
     );
   }
 }
