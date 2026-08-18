@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import type { Params } from 'nestjs-pino';
-import type { EnvironmentVariables, NodeEnvironment } from '../../config/env.validation';
+import type { EnvironmentVariables, NodeEnvironment } from '@/config/env.validation';
 
 const PRETTY_LOG_ENVIRONMENTS: NodeEnvironment[] = ['local', 'development'];
 
