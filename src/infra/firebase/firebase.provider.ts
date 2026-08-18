@@ -1,6 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { cert, getApps, initializeApp } from 'firebase-admin';
-import type { EnvironmentVariables } from '../../config/env.validation';
+import type { EnvironmentVariables } from '@/config/env.validation';
 import { FIREBASE_APP } from './firebase.constants';
 
 export const FirebaseProvider = {
