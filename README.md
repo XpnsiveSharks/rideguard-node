@@ -11,5 +11,9 @@ yarn dev
 
 ## Docs
 
-- [CONTRIBUTING.md](CONTRIBUTING.md) — setup, project structure, and how to
+- [CONTRIBUTING.md](CONTRIBUTING.md) - setup, project structure, and how to
   scaffold a feature module with `yarn gen:module`.
+- [Environment variables](docs/environment.md) - `.env` setup, validation, and
+  adding new variables.
+- [Code organization](docs/code-organization.md) - which folder code belongs in,
+  and when to split something into its own file.
