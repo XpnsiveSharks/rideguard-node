@@ -17,3 +17,5 @@ yarn dev
   adding new variables.
 - [Code organization](docs/code-organization.md) - which folder code belongs in,
   and when to split something into its own file.
+- [Response messages](docs/response-message.md) - how to customize successful
+  response messages with `@ResponseMessage()`.
