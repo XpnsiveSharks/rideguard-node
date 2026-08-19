@@ -9,6 +9,7 @@ import { LoggerModule } from './infra/logger/logger.module';
 import { ThrottlerModule } from './infra/throttler/throttler.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { ProfileModule } from './modules/profile/profile.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     ThrottlerModule,
     AuthModule,
     HealthModule,
+    ProfileModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
