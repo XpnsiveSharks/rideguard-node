@@ -37,8 +37,6 @@ export const envValidationSchema = Joi.object<EnvironmentVariables, true>({
     .pattern(/-----BEGIN PRIVATE KEY-----/)
     .message('FIREBASE_PRIVATE_KEY must be a PEM-encoded private key'),
 
-  // Rate limiting (see infra/throttler). Window length in milliseconds, and
-  // the max requests a single client gets within that window.
-  THROTTLE_TTL: Joi.number().integer().positive().default(60000),
-  THROTTLE_LIMIT: Joi.number().integer().positive().default(100),
+  THROTTLE_TTL: Joi.number().integer().positive().default(60000), // Default length in milliseconds
+  THROTTLE_LIMIT: Joi.number().integer().positive().default(100), // Default max requests a single client gets within that window.
 });
