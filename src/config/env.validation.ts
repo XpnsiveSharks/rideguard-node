@@ -12,6 +12,8 @@ export interface EnvironmentVariables {
   FIREBASE_PROJECT_ID: string;
   FIREBASE_CLIENT_EMAIL: string;
   FIREBASE_PRIVATE_KEY: string;
+  THROTTLE_TTL: number;
+  THROTTLE_LIMIT: number;
 }
 
 export const envValidationSchema = Joi.object<EnvironmentVariables, true>({
@@ -34,4 +36,7 @@ export const envValidationSchema = Joi.object<EnvironmentVariables, true>({
     .required()
     .pattern(/-----BEGIN PRIVATE KEY-----/)
     .message('FIREBASE_PRIVATE_KEY must be a PEM-encoded private key'),
+
+  THROTTLE_TTL: Joi.number().integer().positive().default(60000), // Default length in milliseconds
+  THROTTLE_LIMIT: Joi.number().integer().positive().default(100), // Default max requests a single client gets within that window.
 });

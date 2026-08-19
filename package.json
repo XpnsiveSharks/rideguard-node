@@ -26,6 +26,7 @@
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/throttler": "^6.5.0",
     "firebase-admin": "^14.2.0",
     "joi": "^18.2.3",
     "nestjs-pino": "^4.6.1",
