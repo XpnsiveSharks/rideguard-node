@@ -1,6 +1,6 @@
 import { ArgumentsHost, BadRequestException, NotFoundException } from '@nestjs/common';
-import { HttpExceptionFilter } from './http-exception.filter';
 import { describe, expect, it, jest } from '@jest/globals';
+import { HttpExceptionFilter } from './http-exception.filter';
 
 function createHost() {
   const json = jest.fn();
@@ -31,6 +31,7 @@ describe('HttpExceptionFilter', () => {
       success: false,
       message: 'Resource not found',
       statusCode: 404,
+      timestamp: expect.any(String),
     });
   });
 
@@ -48,6 +49,7 @@ describe('HttpExceptionFilter', () => {
       success: false,
       message: 'name should not be empty, email must be an email',
       statusCode: 400,
+      timestamp: expect.any(String),
     });
   });
 
