@@ -4,33 +4,20 @@ import { Vehicle } from './vehicle.value-object';
 
 export class Profile {
   private constructor(
-    public readonly id: string,
     private personalInfo: PersonalInfo,
-    private vehicle: Vehicle,
-    private emergencyContact: EmergencyContact,
-    private profileImageUrl: string,
-    public readonly createdAt: Date,
-    private updatedAt: Date,
+    private vehicle?: Vehicle,
+    private emergencyContact?: EmergencyContact,
+    private updatedAt?: Date,
   ) {}
 
   static create(
-    id: string,
     personalInfo: PersonalInfo,
-    vehicle: Vehicle,
-    emergencyContact: EmergencyContact,
-    profileImageUrl: string,
+    vehicle?: Vehicle,
+    emergencyContact?: EmergencyContact,
   ): Profile {
     const now = new Date();
 
-    return new Profile(
-      id,
-      personalInfo,
-      vehicle,
-      emergencyContact,
-      profileImageUrl.trim(),
-      now,
-      now,
-    );
+    return new Profile(personalInfo, vehicle, emergencyContact, now);
   }
 
   updatePersonalInfo(personalInfo: PersonalInfo): void {
@@ -48,28 +35,25 @@ export class Profile {
     this.touch();
   }
 
-  updateProfileImage(profileImageUrl: string): void {
-    this.profileImageUrl = profileImageUrl.trim();
-    this.touch();
-  }
-
   getPersonalInfo(): PersonalInfo {
     return this.personalInfo;
   }
 
-  getVehicle(): Vehicle {
+  getVehicle(): Vehicle | undefined {
+    if (!this.vehicle) {
+      return undefined;
+    }
     return this.vehicle;
   }
 
-  getEmergencyContact(): EmergencyContact {
+  getEmergencyContact(): EmergencyContact | undefined {
+    if (!this.emergencyContact) {
+      return undefined;
+    }
     return this.emergencyContact;
   }
 
-  getProfileImageUrl(): string {
-    return this.profileImageUrl;
-  }
-
-  getUpdatedAt(): Date {
+  getUpdatedAt(): Date | undefined {
     return this.updatedAt;
   }
 

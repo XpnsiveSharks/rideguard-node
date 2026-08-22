@@ -6,17 +6,20 @@ export class PersonalInfo {
     const lastName = props.lastName.trim();
     const phoneNumber = props.phoneNumber.trim();
     const email = props.email.trim().toLowerCase();
+    const profileImageUrl = props.profileImageUrl.trim();
 
     if (!firstName) throw new Error('First name is required');
     if (!lastName) throw new Error('Last name is required');
     if (!phoneNumber) throw new Error('Phone number is required');
     if (!email) throw new Error('Email is required');
+    if (!profileImageUrl) throw new Error('Profile image URL is required');
 
     return new PersonalInfo({
       firstName,
       lastName,
       phoneNumber,
       email,
+      profileImageUrl,
     });
   }
 }
@@ -26,4 +29,5 @@ type Info = {
   lastName: string;
   phoneNumber: string;
   email: string;
+  profileImageUrl: string;
 };
