@@ -1,21 +1,21 @@
+import { BadRequestException } from '@nestjs/common';
+
 export class PersonalInfo {
   private constructor(public readonly info: Info) {}
 
   static create(props: Info): PersonalInfo {
-    const firstName = props.firstName.trim();
-    const lastName = props.lastName.trim();
     const phoneNumber = props.phoneNumber.trim();
-    const email = props.email.trim().toLowerCase();
+    const email = props.email?.trim();
     const profileImageUrl = props.profileImageUrl?.trim();
 
-    if (!firstName) throw new Error('First name is required');
-    if (!lastName) throw new Error('Last name is required');
-    if (!phoneNumber) throw new Error('Phone number is required');
-    if (!email) throw new Error('Email is required');
+    if (!props.firstName.trim()) throw new BadRequestException('First name is required');
+    if (!props.lastName.trim()) throw new BadRequestException('Last name is required');
+    if (!phoneNumber) throw new BadRequestException('Phone number is required');
+    if (!email) throw new BadRequestException('Email is required');
 
     return new PersonalInfo({
-      firstName,
-      lastName,
+      firstName: props.firstName,
+      lastName: props.lastName,
       phoneNumber,
       email,
       profileImageUrl,
@@ -27,6 +27,6 @@ type Info = {
   firstName: string;
   lastName: string;
   phoneNumber: string;
-  email: string;
+  email?: string;
   profileImageUrl?: string;
 };
