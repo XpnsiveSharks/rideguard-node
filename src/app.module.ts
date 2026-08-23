@@ -10,6 +10,7 @@ import { ThrottlerModule } from './infra/throttler/throttler.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ProfileModule } from './modules/profile/profile.module';
+import { FirebaseModule } from './infra/firebase/firebase.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ProfileModule } from './modules/profile/profile.module';
     ThrottlerModule,
     AuthModule,
     HealthModule,
+    FirebaseModule,
     ProfileModule,
   ],
   providers: [
