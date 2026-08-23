@@ -1,9 +1,10 @@
 import { EmergencyContact } from './emergency-contact.value-object';
 import { PersonalInfo } from './personal-info.value-object';
 import { Vehicle } from './vehicle.value-object';
-
+import { UnauthorizedException } from '@nestjs/common';
 export class Profile {
   private constructor(
+    private uid: string,
     private personalInfo: PersonalInfo,
     private vehicle?: Vehicle,
     private emergencyContact?: EmergencyContact,
@@ -11,13 +12,16 @@ export class Profile {
   ) {}
 
   static create(
+    uid: string,
     personalInfo: PersonalInfo,
     vehicle?: Vehicle,
     emergencyContact?: EmergencyContact,
   ): Profile {
     const now = new Date();
+    if (!uid)
+      throw new UnauthorizedException('Unable to verify your account. Please sign in again.');
 
-    return new Profile(personalInfo, vehicle, emergencyContact, now);
+    return new Profile(uid, personalInfo, vehicle, emergencyContact, now);
   }
 
   updatePersonalInfo(personalInfo: PersonalInfo): void {
@@ -33,6 +37,10 @@ export class Profile {
   updateEmergencyContact(emergencyContact: EmergencyContact): void {
     this.emergencyContact = emergencyContact;
     this.touch();
+  }
+
+  getUid(): string {
+    return this.uid;
   }
 
   getPersonalInfo(): PersonalInfo {
