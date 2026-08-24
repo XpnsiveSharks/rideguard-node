@@ -11,12 +11,17 @@ export class ProfileRepository {
   constructor(@Inject(FIREBASE_FIRESTORE) private readonly firestoreClient: Firestore) {}
 
   async savePersonalInfo(profile: Profile): Promise<void> {
+    console.table(profile.getPersonalInfo());
+    console.table(profile.getVehicle());
+    console.table(profile.getEmergencyContact());
     try {
       await this.firestoreClient
         .collection(PROFILES_COLLECTION)
         .doc(profile.getUid())
         .create({
-          ...profile.getPersonalInfo().info,
+          ...profile.getPersonalInfo(),
+          ...profile.getVehicle(),
+          ...profile.getEmergencyContact(),
         });
     } catch (error) {
       const code = (error as { code?: unknown }).code;
