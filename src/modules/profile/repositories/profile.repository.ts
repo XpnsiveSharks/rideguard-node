@@ -10,7 +10,7 @@ const PROFILES_COLLECTION = 'profiles';
 export class ProfileRepository {
   constructor(@Inject(FIREBASE_FIRESTORE) private readonly firestoreClient: Firestore) {}
 
-  async savePersonalInfo(profile: Profile): Promise<void> {
+  async saveProfile(profile: Profile): Promise<void> {
     console.table(profile.getPersonalInfo());
     console.table(profile.getVehicle());
     console.table(profile.getEmergencyContact());
@@ -28,6 +28,8 @@ export class ProfileRepository {
       if (code === ALREADY_EXISTS_ERROR_CODE) {
         throw new ConflictException('Profile with this email already exists.');
       }
+
+      throw error;
     }
   }
 }
