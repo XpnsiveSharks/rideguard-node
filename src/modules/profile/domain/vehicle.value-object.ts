@@ -1,21 +1,25 @@
-export class Vehicle {
-  private constructor(
-    public readonly vehicle: string,
-    public readonly plateNumber: string,
-  ) {}
+import { BadRequestException } from '@nestjs/common';
 
-  static create(vehicle: string, plateNumber: string): Vehicle {
-    const trimmedVehicle = vehicle.trim();
-    const trimmedPlateNumber = plateNumber.trim();
+export class Vehicle {
+  private constructor(public readonly vehicleInfo: VehicleInfo) {}
+
+  static create(vehicleInfo: VehicleInfo): Vehicle {
+    const trimmedVehicle = vehicleInfo.vehicleName.trim();
+    const trimmedPlateNumber = vehicleInfo.plateNumber.trim();
 
     if (!trimmedVehicle) {
-      throw new Error('Vehicle is required');
+      throw new BadRequestException('Vehicle is required');
     }
 
     if (!trimmedPlateNumber) {
-      throw new Error('Plate number is required');
+      throw new BadRequestException('Plate number is required');
     }
 
-    return new Vehicle(trimmedVehicle, trimmedPlateNumber);
+    return new Vehicle(vehicleInfo);
   }
 }
+
+type VehicleInfo = {
+  vehicleName: string;
+  plateNumber: string;
+};

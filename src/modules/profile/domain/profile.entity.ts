@@ -6,7 +6,7 @@ export class Profile {
   private constructor(
     private uid: string,
     private personalInfo: PersonalInfo,
-    private vehicle?: Vehicle,
+    private vehicle: Vehicle,
     private emergencyContact?: EmergencyContact,
     private updatedAt?: Date,
   ) {}
@@ -14,7 +14,7 @@ export class Profile {
   static create(
     uid: string,
     personalInfo: PersonalInfo,
-    vehicle?: Vehicle,
+    vehicle: Vehicle,
     emergencyContact?: EmergencyContact,
   ): Profile {
     const now = new Date();
@@ -47,10 +47,7 @@ export class Profile {
     return this.personalInfo;
   }
 
-  getVehicle(): Vehicle | undefined {
-    if (!this.vehicle) {
-      return undefined;
-    }
+  getVehicle(): Vehicle {
     return this.vehicle;
   }
 

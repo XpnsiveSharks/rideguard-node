@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 
 export class PersonalInfo {
-  private constructor(public readonly info: Info) {}
+  private constructor(public readonly personalInfo: Info) {}
 
   static create(props: Info): PersonalInfo {
     const phoneNumber = props.phoneNumber.trim();
