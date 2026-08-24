@@ -53,6 +53,34 @@ describe('HttpExceptionFilter', () => {
     });
   });
 
+  it('preserves structured validation fields from the exception payload', () => {
+    const filter = new HttpExceptionFilter();
+    const { host, status, json } = createHost();
+
+    filter.catch(
+      new BadRequestException({
+        message: 'Validation failed',
+        fields: {
+          first_name: 'first_name must be a string',
+          plate_number: 'plate_number must be a string',
+        },
+      }),
+      host,
+    );
+
+    expect(status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({
+      success: false,
+      message: 'Validation failed',
+      fields: {
+        first_name: 'first_name must be a string',
+        plate_number: 'plate_number must be a string',
+      },
+      statusCode: 400,
+      timestamp: expect.any(String),
+    });
+  });
+
   it('preserves the exception status code', () => {
     const filter = new HttpExceptionFilter();
     const { host, status } = createHost();

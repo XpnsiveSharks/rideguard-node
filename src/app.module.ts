@@ -11,6 +11,8 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ProfileModule } from './modules/profile/profile.module';
 import { FirebaseModule } from './infra/firebase/firebase.module';
+import { APP_PIPE } from '@nestjs/core';
+import { AppValidationPipe } from './common/pipes/app-validation.pipe';
 
 @Module({
   imports: [
@@ -30,6 +32,7 @@ import { FirebaseModule } from './infra/firebase/firebase.module';
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
+    { provide: APP_PIPE, useClass: AppValidationPipe },
   ],
 })
 export class AppModule {}
