@@ -19,3 +19,4 @@ yarn dev
   and when to split something into its own file.
 - [Response messages](docs/response-message.md) - how to customize successful
   response messages with `@ResponseMessage()`.
+- [V1 routes](docs/v1-auth-profile-routes.md) - route documentation

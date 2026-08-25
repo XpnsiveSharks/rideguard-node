@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { CreateProfileInput, EmergencyContactInput } from './profile.types';
 import { PersonalInfo } from './domain/personal-info.value-object';
 import { Profile } from './domain/profile.entity';
@@ -22,5 +22,16 @@ export class ProfileService {
     const profile = Profile.create(input.uid!, personalInfo, vehicle, emergencyContact);
 
     await this.profileRepository.saveProfile(profile);
+  }
+  async createEmergencyContact(
+    uid: string | undefined,
+    emergencyContactInput: EmergencyContactInput,
+  ): Promise<void> {
+    if (!uid)
+      throw new UnauthorizedException('Unable to verify your account. Please sign in again.');
+
+    const emergencyContact = EmergencyContact.create(emergencyContactInput);
+
+    await this.profileRepository.saveContactInfo(uid, emergencyContact);
   }
 }

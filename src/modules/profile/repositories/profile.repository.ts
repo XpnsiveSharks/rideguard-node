@@ -3,6 +3,7 @@ import { Firestore } from 'firebase-admin/firestore';
 import { ALREADY_EXISTS_ERROR_CODE, FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
 import { Profile } from '../domain/profile.entity';
 import { ConflictException } from '@nestjs/common';
+import { EmergencyContact } from '../domain/emergency-contact.value-object';
 
 const PROFILES_COLLECTION = 'profiles';
 
@@ -11,9 +12,6 @@ export class ProfileRepository {
   constructor(@Inject(FIREBASE_FIRESTORE) private readonly firestoreClient: Firestore) {}
 
   async saveProfile(profile: Profile): Promise<void> {
-    console.table(profile.getPersonalInfo());
-    console.table(profile.getVehicle());
-    console.table(profile.getEmergencyContact());
     try {
       await this.firestoreClient
         .collection(PROFILES_COLLECTION)
@@ -31,5 +29,12 @@ export class ProfileRepository {
 
       throw error;
     }
+  }
+  async saveContactInfo(uid: string, emergencyContact: EmergencyContact): Promise<void> {
+    console.table(emergencyContact.emergencyContactInfo);
+    await this.firestoreClient
+      .collection(PROFILES_COLLECTION)
+      .doc(uid)
+      .set({ ...emergencyContact }, { merge: true });
   }
 }
