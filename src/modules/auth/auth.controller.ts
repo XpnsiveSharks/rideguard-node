@@ -19,8 +19,8 @@ export class AuthController {
       picture: req.user?.picture,
     };
   }
-  // route: GET /auth/is-new-user
-  @Get('is-new-user')
+  // route: GET /auth/is-old-user
+  @Get('is-old-user')
   getUserStatus(@Req() req: Request) {
     return this.profileService.findProfileByUid(req.user?.uid as string);
   }

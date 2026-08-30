@@ -3,6 +3,7 @@ import { Firestore } from 'firebase-admin/firestore';
 import { ALREADY_EXISTS_ERROR_CODE, FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
 import { Profile } from '../domain/profile.entity';
 import { ConflictException } from '@nestjs/common';
+import { EmergencyContact } from '../domain/emergency-contact.value-object';
 
 const PROFILES_COLLECTION = 'profiles';
 
@@ -32,8 +33,6 @@ export class ProfileRepository {
       throw error;
     }
   }
-<<<<<<< Updated upstream
-=======
   async saveContactInfo(uid: string, emergencyContact: EmergencyContact): Promise<void> {
     console.table(emergencyContact.emergencyContactInfo);
     await this.firestoreClient
@@ -47,5 +46,4 @@ export class ProfileRepository {
     const docSnapshot = await docRef.get();
     return !docSnapshot.exists ? false : true;
   }
->>>>>>> Stashed changes
 }

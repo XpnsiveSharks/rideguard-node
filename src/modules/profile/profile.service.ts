@@ -24,8 +24,6 @@ export class ProfileService {
 
     await this.profileRepository.saveProfile(profile);
   }
-<<<<<<< Updated upstream
-=======
 
   // creates a new emergency contact
   async createEmergencyContact(
@@ -45,5 +43,4 @@ export class ProfileService {
 
     return await this.profileRepository.findProfileByUid(profileUid);
   }
->>>>>>> Stashed changes
 }
