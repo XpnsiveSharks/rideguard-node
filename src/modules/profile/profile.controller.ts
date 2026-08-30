@@ -1,6 +1,6 @@
 import { Controller, Post, Body, Req } from '@nestjs/common';
 import { ProfileService } from './profile.service';
-import { CreateProfileDto } from './profile.dto';
+import { CreateEmergencyContactDto, CreateProfileDto } from './profile.dto';
 import type { Request } from 'express';
 @Controller('profile')
 export class ProfileController {
@@ -32,5 +32,15 @@ export class ProfileController {
         relationship: body.relationship,
       },
     );
+  }
+
+  // route: POST /profile/emergency-contact
+  @Post('emergency-contact')
+  createEmergencyContact(@Req() req: Request, @Body() body: CreateEmergencyContactDto) {
+    return this.profileService.createEmergencyContact(req.user?.uid, {
+      contactName: body.contact_name,
+      phoneNumber: body.emergency_phone_number,
+      relationship: body.relationship,
+    });
   }
 }

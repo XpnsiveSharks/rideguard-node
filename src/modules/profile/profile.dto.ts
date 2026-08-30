@@ -1,5 +1,5 @@
-import { IsOptional, IsString } from 'class-validator';
-
+import { IsEnum, IsOptional, IsString } from 'class-validator';
+import { Relationship } from './domain/emergency-contact.value-object';
 export class CreateEmergencyContactDto {
   @IsString()
   @IsOptional()
@@ -9,9 +9,9 @@ export class CreateEmergencyContactDto {
   @IsOptional()
   emergency_phone_number?: string;
 
-  @IsString()
+  @IsEnum(Relationship, { message: 'Invalid relationship type' })
   @IsOptional()
-  relationship?: string;
+  relationship?: Relationship;
 }
 
 export class CreateProfileDto extends CreateEmergencyContactDto {

@@ -12,9 +12,6 @@ export class ProfileRepository {
   constructor(@Inject(FIREBASE_FIRESTORE) private readonly firestoreClient: Firestore) {}
 
   async saveProfile(profile: Profile): Promise<void> {
-    console.table(profile.getPersonalInfo());
-    console.table(profile.getVehicle());
-    console.table(profile.getEmergencyContact());
     try {
       await this.firestoreClient
         .collection(PROFILES_COLLECTION)
