@@ -9,6 +9,7 @@ import { EmergencyContact } from './domain/emergency-contact.value-object';
 export class ProfileService {
   constructor(private readonly profileRepository: ProfileRepository) {}
 
+  // Creates a new profile for the user
   async createProfile(
     input: CreateProfileInput,
     emergencyContactInput: EmergencyContactInput,
@@ -23,4 +24,26 @@ export class ProfileService {
 
     await this.profileRepository.saveProfile(profile);
   }
+<<<<<<< Updated upstream
+=======
+
+  // creates a new emergency contact
+  async createEmergencyContact(
+    uid: string | undefined,
+    emergencyContactInput: EmergencyContactInput,
+  ): Promise<void> {
+    const profileUid = Profile.isEmpty(uid);
+
+    const emergencyContact = EmergencyContact.create(emergencyContactInput);
+
+    await this.profileRepository.saveContactInfo(profileUid, emergencyContact);
+  }
+
+  // Checks if a profile exists for the given UID
+  async findProfileByUid(uid: string): Promise<boolean> {
+    const profileUid = Profile.isEmpty(uid);
+
+    return await this.profileRepository.findProfileByUid(profileUid);
+  }
+>>>>>>> Stashed changes
 }

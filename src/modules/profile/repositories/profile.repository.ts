@@ -32,4 +32,20 @@ export class ProfileRepository {
       throw error;
     }
   }
+<<<<<<< Updated upstream
+=======
+  async saveContactInfo(uid: string, emergencyContact: EmergencyContact): Promise<void> {
+    console.table(emergencyContact.emergencyContactInfo);
+    await this.firestoreClient
+      .collection(PROFILES_COLLECTION)
+      .doc(uid)
+      .set({ ...emergencyContact }, { merge: true });
+  }
+
+  async findProfileByUid(uid: string): Promise<boolean> {
+    const docRef = this.firestoreClient.collection(PROFILES_COLLECTION).doc(uid);
+    const docSnapshot = await docRef.get();
+    return !docSnapshot.exists ? false : true;
+  }
+>>>>>>> Stashed changes
 }

@@ -62,6 +62,14 @@ export class Profile {
     return this.updatedAt;
   }
 
+  static isEmpty(input: string | undefined): string {
+    const isEmpty = !input || input.trim() === '';
+    if (isEmpty) {
+      throw new UnauthorizedException('Unable to verify your account. Please sign in again.');
+    }
+    return input;
+  }
+
   private touch(): void {
     this.updatedAt = new Date();
   }
