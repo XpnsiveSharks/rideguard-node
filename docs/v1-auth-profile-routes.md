@@ -52,6 +52,32 @@ Message: `User profile retrieved successfully`
 | `401`  | Missing or invalid Firebase bearer token.   |
 | `429`  | Request exceeded the global throttle limit. |
 
+## GET /v1/auth/is-old-user
+
+Gets user account creation status, if they were a new user or a user that has already have a personal info record in our database
+
+### Request
+
+No request body.
+
+### Success Response
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": true,
+  "timestamp": "2026-08-30T14:13:11.547Z"
+}
+```
+
+### Errors
+
+| Status | Reason                                      |
+| ------ | ------------------------------------------- |
+| `401`  | Missing or invalid Firebase bearer token.   |
+| `429`  | Request exceeded the global throttle limit. |
+
 ## POST /v1/profile/personal-info
 
 Creates a profile document for the authenticated Firebase user. The user ID,
