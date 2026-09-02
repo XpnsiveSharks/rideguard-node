@@ -12,7 +12,10 @@ export const FirestoreProvider = {
    */
   useFactory: (app: App): Firestore => {
     try {
-      return getFirestore(app);
+      const firestore = getFirestore(app);
+      firestore.settings({ ignoreUndefinedProperties: true });
+
+      return firestore;
     } catch (error) {
       throw new Error(
         `Failed to initialize Firestore: ${error instanceof Error ? error.message : String(error)}`,

@@ -1,12 +1,10 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
-import { FirebaseModule } from '@/infra/firebase/firebase.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { FirebaseAuthGuard } from './guards/firebase-auth.guard';
 
 @Module({
-  imports: [FirebaseModule],
   controllers: [AuthController],
   providers: [
     AuthService,

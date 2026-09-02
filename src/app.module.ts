@@ -9,6 +9,10 @@ import { LoggerModule } from './infra/logger/logger.module';
 import { ThrottlerModule } from './infra/throttler/throttler.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { ProfileModule } from './modules/profile/profile.module';
+import { FirebaseModule } from './infra/firebase/firebase.module';
+import { APP_PIPE } from '@nestjs/core';
+import { AppValidationPipe } from './common/pipes/app-validation.pipe';
 
 @Module({
   imports: [
@@ -21,11 +25,14 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
     ThrottlerModule,
     AuthModule,
     HealthModule,
+    FirebaseModule,
+    ProfileModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
+    { provide: APP_PIPE, useClass: AppValidationPipe },
   ],
 })
 export class AppModule {}

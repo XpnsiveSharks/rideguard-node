@@ -6,6 +6,7 @@ interface ErrorResponseBody {
   message: string;
   statusCode: number;
   timestamp: string;
+  [key: string]: unknown;
 }
 
 /* Catches NestJS HTTP exceptions (NotFoundException, UnauthorizedException,
@@ -24,6 +25,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       message: extractMessage(exception),
       statusCode,
       timestamp: now.toISOString(),
+      ...extractDetails(exception),
     };
 
     response.status(statusCode).json(body);
@@ -54,4 +56,18 @@ function extractMessage(exception: HttpException): string {
   }
 
   return exception.message;
+}
+
+function extractDetails(exception: HttpException): Record<string, unknown> {
+  const payload = exception.getResponse();
+
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(payload).filter(
+      ([key]) => !['success', 'message', 'error', 'statusCode', 'timestamp'].includes(key),
+    ),
+  );
 }
