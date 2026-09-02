@@ -3,22 +3,28 @@ import { BadRequestException } from '@nestjs/common';
 export class PersonalInfo {
   private constructor(public readonly personalInfo: Info) {}
 
-  static create(props: Info): PersonalInfo {
-    const phoneNumber = props.phoneNumber.trim();
-    const email = props.email?.trim();
-    const profileImageUrl = props.profileImageUrl?.trim();
+  static create(info: Info): PersonalInfo {
+    const trimmedFirstName = info.firstName.trim();
+    if (!trimmedFirstName) throw new BadRequestException('First name is required');
 
-    if (!props.firstName.trim()) throw new BadRequestException('First name is required');
-    if (!props.lastName.trim()) throw new BadRequestException('Last name is required');
-    if (!phoneNumber) throw new BadRequestException('Phone number is required');
-    if (!email) throw new BadRequestException('Email is required');
+    const trimmedLastName = info.lastName.trim();
+    if (!trimmedLastName) throw new BadRequestException('Last name is required');
+
+    const trimmedPhoneNumber = info.phoneNumber.trim();
+
+    if (!trimmedPhoneNumber) throw new BadRequestException('Phone number is required');
+
+    const trimmedEmail = info.email?.trim();
+    if (!trimmedEmail) throw new BadRequestException('Email is required');
+
+    const trimmedProfileImageUrl = info.profileImageUrl?.trim();
 
     return new PersonalInfo({
-      firstName: props.firstName,
-      lastName: props.lastName,
-      phoneNumber,
-      email,
-      profileImageUrl,
+      firstName: info.firstName,
+      lastName: info.lastName,
+      phoneNumber: trimmedPhoneNumber,
+      email: trimmedEmail,
+      profileImageUrl: trimmedProfileImageUrl,
     });
   }
 }

@@ -1,3 +1,5 @@
+import { parseOptionalEnumValue } from '@/common/helpers/enum-parser';
+
 export class EmergencyContact {
   private constructor(public readonly emergencyContactInfo: EmergencyContactInfo) {}
 
@@ -29,17 +31,7 @@ export class EmergencyContact {
   }
 
   private static parseRelationship(value: string | undefined): Relationship | undefined {
-    if (value === undefined) return undefined;
-
-    const relationship = value.trim();
-
-    if (!Object.values(Relationship).includes(relationship as Relationship)) {
-      throw new Error(
-        `Invalid relationship "${relationship}". Please select a valid relationship type.`,
-      );
-    }
-
-    return relationship as Relationship;
+    return parseOptionalEnumValue(value, Relationship, 'relationship');
   }
 }
 
