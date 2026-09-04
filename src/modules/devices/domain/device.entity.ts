@@ -1,12 +1,14 @@
 import { parseEnumValue } from '@/common/helpers/enum-parser';
 import { BadRequestException } from '@nestjs/common';
+import { DeviceId } from './device-id.value-object';
 
 export class Device {
   constructor(public readonly deviceInfo: DeviceInfo) {}
 
   public static create(deviceInfo: DeviceInfo): Device {
-    const trimmedDeviceId = deviceInfo.deviceId?.trim();
-    if (!trimmedDeviceId) throw new BadRequestException('Device ID is required');
+    const deviceId = !deviceInfo.deviceId
+      ? DeviceId.generate()
+      : DeviceId.create(deviceInfo.deviceId.toString());
 
     const trimmedDeviceType = parseEnumValue(deviceInfo.deviceType, DeviceType, 'device type');
     if (!trimmedDeviceType) throw new BadRequestException('First name is required');
@@ -15,14 +17,27 @@ export class Device {
     if (!trimmedStatus) throw new BadRequestException('First name is required');
 
     return new Device({
-      deviceId: trimmedDeviceId,
+      deviceId: deviceId.toString(),
       deviceType: trimmedDeviceType,
       status: trimmedStatus,
     });
   }
 
+  public static AssignDeviceToUser(device: Device, assignedUserId: string): Device {
+    const trimmedAssignedUserId = assignedUserId?.trim();
+    if (!trimmedAssignedUserId) throw new BadRequestException('Assigned user ID is required');
+
+    return new Device({
+      ...device.deviceInfo,
+      assignedUserId: trimmedAssignedUserId,
+    });
+  }
+
   getDeviceId(): string {
-    return this.deviceInfo.deviceId;
+    if (!this.deviceInfo.deviceId) {
+      throw new BadRequestException('Device ID is required');
+    }
+    return this.deviceInfo.deviceId.toString();
   }
 
   getDeviceType(): DeviceType {
@@ -36,7 +51,7 @@ export class Device {
 
 export enum DeviceType {
   CAMERA = 'Camera',
-  METAL_DETECTOR = 'Metal Detector',
+  METAL_DETECTOR = 'Metal-Detector',
 }
 
 export enum DeviceStatus {
@@ -45,8 +60,8 @@ export enum DeviceStatus {
 }
 
 export type DeviceInfo = {
-  deviceId: string;
+  deviceId?: string;
   deviceType: string;
-  status: string;
+  status?: string;
   assignedUserId?: string;
 };

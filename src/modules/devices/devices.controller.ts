@@ -13,9 +13,7 @@ export class DevicesController {
     body: DeviceRegistrationDto,
   ) {
     return this.devicesService.registerDevice({
-      deviceId: body.device_id,
       deviceType: body.device_type,
-      status: body.status,
     });
   }
 }
