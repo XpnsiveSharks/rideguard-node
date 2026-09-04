@@ -1,7 +1,7 @@
 import { parseOptionalEnumValue } from '@/common/helpers/enum-parser';
 
 export class EmergencyContact {
-  private constructor(public emergencyContactFields: EmergencyContactFields) {}
+  private constructor(public readonly emergencyContactFields: EmergencyContactFields) {}
 
   static create(emergencyContactInfo: EmergencyContactFields): EmergencyContact {
     const { contactName, phoneNumber, relationship } = emergencyContactInfo;

@@ -1,4 +1,4 @@
-import { Profile } from '../../domain/profile.entity';
+import { Profile } from '../domain/profile.entity';
 
 export class ProfileMapper {
   static toPersistence(profile: Profile) {

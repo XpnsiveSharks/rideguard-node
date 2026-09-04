@@ -1,4 +1,4 @@
-import { EmergencyContact } from '../../domain/emergency-contact.value-object';
+import { EmergencyContact } from '../domain/emergency-contact.value-object';
 
 export class EmergencyContactMapper {
   static toPersistence(emergencyContact: EmergencyContact) {

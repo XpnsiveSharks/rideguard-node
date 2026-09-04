@@ -1,4 +1,3 @@
-import { Timestamps } from '@/common/types/domain-types';
 import { EmergencyContact, EmergencyContactFields } from './emergency-contact.value-object';
 import { PersonalInfoFields, PersonalInfo } from './personal-info.value-object';
 import { Vehicle, VehicleInfoFields } from './vehicle.value-object';
@@ -12,14 +11,11 @@ export class Profile {
       throw new UnauthorizedException('Unable to verify your account. Please sign in again.');
     }
 
-    const currentDateTime = new Date();
-
     return new Profile({
       uid: profileFields.uid,
       personalInfo: profileFields.personalInfo,
       vehicle: profileFields.vehicle,
       emergencyContact: profileFields.emergencyContact,
-      createdAt: currentDateTime,
     });
   }
 
@@ -31,16 +27,11 @@ export class Profile {
     return isEmpty;
   }
 
-  private touch(): void {
-    this.profileFields.updatedAt = new Date();
-  }
-
   getUid(): string {
-    const uid = this.profileFields.uid;
-    if (!uid) {
+    if (!this.profileFields.uid || this.profileFields.uid.trim() === '') {
       throw new UnauthorizedException('Unable to verify your account. Please sign in again.');
     }
-    return uid;
+    return this.profileFields.uid;
   }
 
   getPersonalInfo(): PersonalInfoFields {
@@ -56,7 +47,7 @@ export class Profile {
   }
 }
 
-export type ProfileFields = Timestamps & {
+export type ProfileFields = {
   uid?: string;
   personalInfo: PersonalInfo;
   vehicle: Vehicle;

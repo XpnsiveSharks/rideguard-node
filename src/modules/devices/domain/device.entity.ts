@@ -1,5 +1,4 @@
 import { parseEnumValue } from '@/common/helpers/enum-parser';
-import { Timestamps } from '@/common/types/domain-types';
 import { BadRequestException } from '@nestjs/common';
 
 export class Device {
@@ -15,14 +14,23 @@ export class Device {
     const trimmedStatus = parseEnumValue(deviceInfo.status, DeviceStatus, 'device status');
     if (!trimmedStatus) throw new BadRequestException('First name is required');
 
-    const createdAt = new Date();
-
     return new Device({
       deviceId: trimmedDeviceId,
       deviceType: trimmedDeviceType,
       status: trimmedStatus,
-      createdAt: createdAt,
     });
+  }
+
+  getDeviceId(): string {
+    return this.deviceInfo.deviceId;
+  }
+
+  getDeviceType(): DeviceType {
+    return this.deviceInfo.deviceType as DeviceType;
+  }
+
+  getStatus(): DeviceStatus {
+    return this.deviceInfo.status as DeviceStatus;
   }
 }
 
@@ -36,7 +44,7 @@ export enum DeviceStatus {
   STANDBY = 'Standby',
 }
 
-export type DeviceInfo = Timestamps & {
+export type DeviceInfo = {
   deviceId: string;
   deviceType: string;
   status: string;

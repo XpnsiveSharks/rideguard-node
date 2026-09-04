@@ -1,7 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { ProfileController } from './profile.controller';
 import { ProfileService } from './profile.service';
-import { ProfileRepository } from './infrastructure/firestore/profile.repository';
+import { ProfileRepository } from './infrastructure/profile.repository';
 
 @Global()
 @Module({

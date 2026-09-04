@@ -1,8 +1,8 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { Firestore } from 'firebase-admin/firestore';
 import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
-import { Profile } from '../../domain/profile.entity';
-import { EmergencyContact } from '../../domain/emergency-contact.value-object';
+import { Profile } from '../domain/profile.entity';
+import { EmergencyContact } from '../domain/emergency-contact.value-object';
 import { FieldValue } from 'firebase-admin/firestore';
 import { ProfileMapper } from './profile.mapper';
 import { EmergencyContactMapper } from './emergency-contact.mapper';

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Device, DeviceInfo } from './domain/device.entity';
-import { DeviceRepository } from './repository/device.repository';
+import { DeviceRepository } from './infrastructure/devices.repository';
 
 @Injectable()
 export class DevicesService {

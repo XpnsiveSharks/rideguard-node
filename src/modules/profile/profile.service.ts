@@ -1,7 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PersonalInfo } from './domain/personal-info.value-object';
 import { Profile } from './domain/profile.entity';
-import { ProfileRepository } from './infrastructure/firestore/profile.repository';
+import { ProfileRepository } from './infrastructure/profile.repository';
 import { Vehicle } from './domain/vehicle.value-object';
 import { EmergencyContact, EmergencyContactFields } from './domain/emergency-contact.value-object';
 import { CreateProfileInput } from './profile.types';
