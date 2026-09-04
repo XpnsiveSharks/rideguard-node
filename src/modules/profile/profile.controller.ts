@@ -13,25 +13,26 @@ export class ProfileController {
     @Body()
     body: CreateProfileDto,
   ) {
-    return this.profileService.createProfile(
-      {
-        uid: req.user?.uid,
+    return this.profileService.createProfile({
+      uid: req.user?.uid,
+      personalInfoFields: {
         firstName: body.first_name,
         lastName: body.last_name,
-        email: req.user?.email,
         phoneNumber: body.phone_number,
+        email: req.user?.email,
         profileImageUrl: req.user?.picture,
-        vehicle: {
-          vehicleName: body.vehicle,
-          plateNumber: body.plate_number,
-        },
       },
-      {
+      vehicleInfoFields: {
+        vehicleName: body.vehicle,
+        plateNumber: body.plate_number,
+        color: body.color,
+      },
+      emergencyContactFields: {
         contactName: body.contact_name,
         phoneNumber: body.emergency_phone_number,
         relationship: body.relationship,
       },
-    );
+    });
   }
 
   // route: POST /profile/emergency-contact

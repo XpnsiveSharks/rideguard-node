@@ -29,4 +29,7 @@ export class CreateProfileDto extends CreateEmergencyContactDto {
 
   @IsString()
   plate_number!: string;
+
+  @IsString()
+  color?: string;
 }
