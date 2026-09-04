@@ -19,8 +19,8 @@ export class DevicesController {
     });
   }
 
-  // route: PATCH /devices/assign-device/:device_id
-  @Patch('assign-device/:device_id')
+  // route: PATCH /devices/claim-device/:device_id
+  @Patch('claim-device/:device_id')
   assignDeviceToUser(@Param('device_id') deviceId: string, @Req() req: Request) {
     return this.devicesService.assignDeviceToUser(deviceId, req.user?.uid);
   }

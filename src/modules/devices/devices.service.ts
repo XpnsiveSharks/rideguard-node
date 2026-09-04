@@ -2,10 +2,13 @@ import { Injectable, NotFoundException, UnprocessableEntityException } from '@ne
 import { Device, DeviceInfo, DeviceStatus } from './domain/device.entity';
 import { DeviceRepository } from './infrastructure/devices.repository';
 import { DeviceId } from './domain/device-id.value-object';
-
+import { Logger } from 'nestjs-pino';
 @Injectable()
 export class DevicesService {
-  constructor(private readonly deviceRepository: DeviceRepository) {}
+  constructor(
+    private readonly deviceRepository: DeviceRepository,
+    private readonly logger: Logger,
+  ) {}
 
   // *** REGISTER NEW HARDWARE DEVICE - ADMIN ***
   async registerDevice(input: DeviceInfo): Promise<void> {
@@ -31,6 +34,7 @@ export class DevicesService {
       );
     }
 
+    this.logger.debug(`Assigning device ${deviceId} to user ${assignedUserId}`);
     DeviceId.isEmpty(deviceId);
 
     const device = await this.deviceRepository.findDeviceById(deviceId);
@@ -39,6 +43,8 @@ export class DevicesService {
     }
 
     const updatedDevice = Device.AssignDeviceToUser(device, assignedUserId);
-    await this.deviceRepository.updateDevice(deviceId, updatedDevice);
+    await this.deviceRepository.updateDevice(deviceId, {
+      assignedUserId: updatedDevice.getAssignedUserId(),
+    });
   }
 }

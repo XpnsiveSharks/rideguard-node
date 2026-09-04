@@ -4,7 +4,7 @@ import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
 import { Device } from '../domain/device.entity';
 import { DeviceMapper } from './devices.mapper';
 import { FieldValue } from 'firebase-admin/firestore';
-import { DeviceDocument, DEVICES_COLLECTION } from './devices.document';
+import { DeviceDocument, DEVICES_COLLECTION, DeviceUpdateDocument } from './devices.document';
 
 @Injectable()
 export class DeviceRepository {
@@ -17,11 +17,11 @@ export class DeviceRepository {
       .create({ ...DeviceMapper.toPersistence(device), createdAt: FieldValue.serverTimestamp() });
   }
 
-  async updateDevice(deviceId: string, UpdateQuery: Partial<Device>): Promise<Device> {
+  async updateDevice(deviceId: string, updateQuery: DeviceUpdateDocument): Promise<Device> {
     await this.firestoreClient
       .collection(DEVICES_COLLECTION)
       .doc(deviceId)
-      .set({ ...UpdateQuery, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      .set({ ...updateQuery, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
 
     const deviceDoc = await this.firestoreClient.collection(DEVICES_COLLECTION).doc(deviceId).get();
     return DeviceMapper.toDomain(deviceDoc.data() as DeviceDocument);
