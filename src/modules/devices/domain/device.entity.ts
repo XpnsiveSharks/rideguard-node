@@ -33,6 +33,13 @@ export class Device {
     });
   }
 
+  public static updateDeviceStatus(device: Device, status: DeviceStatus): Device {
+    return new Device({
+      ...device.deviceInfo,
+      status: status,
+    });
+  }
+
   getDeviceId(): string {
     if (!this.deviceInfo.deviceId) {
       throw new BadRequestException('Device ID is required');
