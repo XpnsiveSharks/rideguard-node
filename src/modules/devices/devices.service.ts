@@ -12,17 +12,16 @@ export class DevicesService {
 
   // *** REGISTER NEW HARDWARE DEVICE - ADMIN ***
   async registerDevice(input: DeviceInfo): Promise<void> {
-    const generateDeviceId = DeviceId.generate();
+    const device = Device.create({
+      deviceType: input.deviceType,
+      status: DeviceStatus.STANDBY,
+    });
+    const generateDeviceId = device.getDeviceId();
+
     // This checks first if our generated device ID already exists in the database.
     const isGeneratedIdExisting = await this.deviceRepository.findDeviceById(generateDeviceId);
     // If the generated device ID does not exist
     if (!isGeneratedIdExisting) {
-      // we create a new device
-      const device = Device.create({
-        deviceId: generateDeviceId.toString(),
-        deviceType: input.deviceType,
-        status: DeviceStatus.STANDBY,
-      });
       // And save it to the database
       await this.deviceRepository.saveDevice(device);
     }

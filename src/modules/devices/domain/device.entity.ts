@@ -6,15 +6,15 @@ export class Device {
   constructor(public readonly deviceInfo: DeviceInfo) {}
 
   public static create(deviceInfo: DeviceInfo): Device {
-    const deviceId = !deviceInfo.deviceId
-      ? DeviceId.generate()
-      : DeviceId.create(deviceInfo.deviceId.toString());
-
     const trimmedDeviceType = parseEnumValue(deviceInfo.deviceType, DeviceType, 'device type');
     if (!trimmedDeviceType) throw new BadRequestException('First name is required');
 
     const trimmedStatus = parseEnumValue(deviceInfo.status, DeviceStatus, 'device status');
     if (!trimmedStatus) throw new BadRequestException('First name is required');
+
+    const deviceId = !deviceInfo.deviceId
+      ? DeviceId.generate(trimmedDeviceType)
+      : DeviceId.create(deviceInfo.deviceId.toString(), trimmedDeviceType);
 
     return new Device({
       deviceId: deviceId.toString(),
