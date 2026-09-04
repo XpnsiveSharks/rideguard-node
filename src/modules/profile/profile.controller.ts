@@ -15,14 +15,14 @@ export class ProfileController {
   ) {
     return this.profileService.createProfile({
       uid: req.user?.uid,
-      personalInfo: {
+      personalInfoFields: {
         firstName: body.first_name,
         lastName: body.last_name,
         phoneNumber: body.phone_number,
         email: req.user?.email,
         profileImageUrl: req.user?.picture,
       },
-      vehicleInfo: {
+      vehicleInfoFields: {
         vehicleName: body.vehicle,
         plateNumber: body.plate_number,
         color: body.color,

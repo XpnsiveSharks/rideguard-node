@@ -1,20 +1,22 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PersonalInfo } from './domain/personal-info.value-object';
-import { Profile, ProfileFields } from './domain/profile.entity';
+import { Profile } from './domain/profile.entity';
 import { ProfileRepository } from './repositories/profile.repository';
 import { Vehicle } from './domain/vehicle.value-object';
 import { EmergencyContact, EmergencyContactFields } from './domain/emergency-contact.value-object';
+import { CreateProfileInput } from './profile.types';
+
 @Injectable()
 export class ProfileService {
   constructor(private readonly profileRepository: ProfileRepository) {}
 
   // Creates a new profile for the user
-  async createProfile(input: ProfileFields): Promise<void> {
-    const personalInfo = PersonalInfo.create(input.personalInfo.personalInfoFields);
+  async createProfile(input: CreateProfileInput): Promise<void> {
+    const personalInfo = PersonalInfo.create(input.personalInfo);
 
-    const vehicle = Vehicle.create(input.vehicle.vehicleInfoFields);
+    const vehicle = Vehicle.create(input.vehicleInfo);
 
-    const emergencyContact = EmergencyContact.create(input.emergencyContact.emergencyContactFields);
+    const emergencyContact = EmergencyContact.create(input.emergencyContactFields);
 
     const profile = Profile.create({
       uid: input.uid,
@@ -28,11 +30,10 @@ export class ProfileService {
 
   // creates a new emergency contact
   async createEmergencyContact(
-    uid: string,
+    uid: string | undefined,
     emergencyContactInput: EmergencyContactFields,
   ): Promise<void> {
-    const IsEmptyUid = Profile.isEmpty(uid);
-    if (IsEmptyUid) {
+    if (!uid || uid.trim() === '') {
       throw new UnauthorizedException("We couldn't verify your account");
     }
 

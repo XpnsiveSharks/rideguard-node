@@ -1,9 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
 
 export class PersonalInfo {
-  private constructor(public personalInfoFields: Info) {}
+  private constructor(public personalInfoFields: PersonalInfoFields) {}
 
-  static create(info: Info): PersonalInfo {
+  static create(info: PersonalInfoFields): PersonalInfo {
     const trimmedFirstName = info.firstName.trim();
     if (!trimmedFirstName) throw new BadRequestException('First name is required');
 
@@ -29,7 +29,7 @@ export class PersonalInfo {
   }
 }
 
-export type Info = {
+export type PersonalInfoFields = {
   firstName: string;
   lastName: string;
   phoneNumber: string;

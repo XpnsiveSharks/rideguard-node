@@ -1,8 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { Firestore } from 'firebase-admin/firestore';
-import { ALREADY_EXISTS_ERROR_CODE, FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
+import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
 import { Profile } from '../domain/profile.entity';
-import { ConflictException } from '@nestjs/common';
 import { EmergencyContact } from '../domain/emergency-contact.value-object';
 
 const PROFILES_COLLECTION = 'profiles';
@@ -16,18 +15,18 @@ export class ProfileRepository {
       .collection(PROFILES_COLLECTION)
       .doc(profile.getUid())
       .create({
-        ...profile.getPersonalInfo(),
-        ...profile.getVehicle(),
-        ...profile.getEmergencyContact(),
+        uid: profile.getUid(),
+        personalInfo: profile.getPersonalInfo(),
+        vehicle: profile.getVehicle(),
+        emergencyContact: profile.getEmergencyContact(),
       });
   }
 
   async saveContactInfo(uid: string, emergencyContact: EmergencyContact): Promise<void> {
-    console.table(emergencyContact.emergencyContactInfo);
     await this.firestoreClient
       .collection(PROFILES_COLLECTION)
       .doc(uid)
-      .set({ ...emergencyContact }, { merge: true });
+      .set({ emergencyContact: emergencyContact.emergencyContactFields }, { merge: true });
   }
 
   async findProfileByUid(uid: string): Promise<boolean> {

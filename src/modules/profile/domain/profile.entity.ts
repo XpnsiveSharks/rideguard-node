@@ -1,7 +1,7 @@
 import { Timestamps } from '@/common/types/domain-types';
-import { EmergencyContact } from './emergency-contact.value-object';
-import { PersonalInfo } from './personal-info.value-object';
-import { Vehicle } from './vehicle.value-object';
+import { EmergencyContact, EmergencyContactFields } from './emergency-contact.value-object';
+import { PersonalInfoFields, PersonalInfo } from './personal-info.value-object';
+import { Vehicle, VehicleInfoFields } from './vehicle.value-object';
 import { UnauthorizedException } from '@nestjs/common';
 export class Profile {
   private constructor(public readonly profileFields: ProfileFields) {}
@@ -33,6 +33,26 @@ export class Profile {
 
   private touch(): void {
     this.profileFields.updatedAt = new Date();
+  }
+
+  getUid(): string {
+    const uid = this.profileFields.uid;
+    if (!uid) {
+      throw new UnauthorizedException('Unable to verify your account. Please sign in again.');
+    }
+    return uid;
+  }
+
+  getPersonalInfo(): PersonalInfoFields {
+    return this.profileFields.personalInfo.personalInfoFields;
+  }
+
+  getVehicle(): VehicleInfoFields {
+    return this.profileFields.vehicle.vehicleInfoFields;
+  }
+
+  getEmergencyContact(): EmergencyContactFields {
+    return this.profileFields.emergencyContact.emergencyContactFields;
   }
 }
 
