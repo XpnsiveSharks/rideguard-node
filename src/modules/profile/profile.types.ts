@@ -1,18 +1,10 @@
+import { EmergencyContactFields } from './domain/emergency-contact.value-object';
+import { PersonalInfoFields } from './domain/personal-info.value-object';
+import { VehicleInfoFields } from './domain/vehicle.value-object';
+
 export type CreateProfileInput = {
   uid?: string;
-  firstName: string;
-  lastName: string;
-  phoneNumber: string;
-  email?: string;
-  profileImageUrl?: string;
-  vehicle: {
-    vehicleName: string;
-    plateNumber: string;
-  };
-};
-
-export type EmergencyContactInput = {
-  contactName?: string;
-  phoneNumber?: string;
-  relationship?: string;
+  personalInfoFields: PersonalInfoFields;
+  vehicleInfoFields: VehicleInfoFields;
+  emergencyContactFields: EmergencyContactFields;
 };

@@ -13,6 +13,7 @@ import { ProfileModule } from './modules/profile/profile.module';
 import { FirebaseModule } from './infra/firebase/firebase.module';
 import { APP_PIPE } from '@nestjs/core';
 import { AppValidationPipe } from './common/pipes/app-validation.pipe';
+import { DevicesModule } from './modules/devices/devices.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { AppValidationPipe } from './common/pipes/app-validation.pipe';
     HealthModule,
     FirebaseModule,
     ProfileModule,
+    DevicesModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

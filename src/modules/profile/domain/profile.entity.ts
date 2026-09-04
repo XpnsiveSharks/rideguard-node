@@ -1,76 +1,55 @@
-import { EmergencyContact } from './emergency-contact.value-object';
-import { PersonalInfo } from './personal-info.value-object';
-import { Vehicle } from './vehicle.value-object';
+import { EmergencyContact, EmergencyContactFields } from './emergency-contact.value-object';
+import { PersonalInfoFields, PersonalInfo } from './personal-info.value-object';
+import { Vehicle, VehicleInfoFields } from './vehicle.value-object';
 import { UnauthorizedException } from '@nestjs/common';
 export class Profile {
-  private constructor(
-    private uid: string,
-    private personalInfo: PersonalInfo,
-    private vehicle: Vehicle,
-    private emergencyContact?: EmergencyContact,
-    private updatedAt?: Date,
-  ) {}
+  private constructor(public readonly profileFields: ProfileFields) {}
 
-  static create(
-    uid: string,
-    personalInfo: PersonalInfo,
-    vehicle: Vehicle,
-    emergencyContact?: EmergencyContact,
-  ): Profile {
-    const now = new Date();
-    if (!uid)
+  static create(profileFields: ProfileFields): Profile {
+    const isEmptyUid = this.isEmpty(profileFields.uid);
+    if (isEmptyUid) {
       throw new UnauthorizedException('Unable to verify your account. Please sign in again.');
-
-    return new Profile(uid, personalInfo, vehicle, emergencyContact, now);
-  }
-
-  updatePersonalInfo(personalInfo: PersonalInfo): void {
-    this.personalInfo = personalInfo;
-    this.touch();
-  }
-
-  updateVehicle(vehicle: Vehicle): void {
-    this.vehicle = vehicle;
-    this.touch();
-  }
-
-  updateEmergencyContact(emergencyContact: EmergencyContact): void {
-    this.emergencyContact = emergencyContact;
-    this.touch();
-  }
-
-  getUid(): string {
-    return this.uid;
-  }
-
-  getPersonalInfo(): PersonalInfo {
-    return this.personalInfo;
-  }
-
-  getVehicle(): Vehicle {
-    return this.vehicle;
-  }
-
-  getEmergencyContact(): EmergencyContact | undefined {
-    if (!this.emergencyContact) {
-      return undefined;
     }
-    return this.emergencyContact;
+
+    return new Profile({
+      uid: profileFields.uid,
+      personalInfo: profileFields.personalInfo,
+      vehicle: profileFields.vehicle,
+      emergencyContact: profileFields.emergencyContact,
+    });
   }
 
-  getUpdatedAt(): Date | undefined {
-    return this.updatedAt;
-  }
-
-  static isEmpty(input: string | undefined): string {
+  static isEmpty(input: string | undefined): boolean {
     const isEmpty = !input || input.trim() === '';
     if (isEmpty) {
       throw new UnauthorizedException('Unable to verify your account. Please sign in again.');
     }
-    return input;
+    return isEmpty;
   }
 
-  private touch(): void {
-    this.updatedAt = new Date();
+  getUid(): string {
+    if (!this.profileFields.uid || this.profileFields.uid.trim() === '') {
+      throw new UnauthorizedException('Unable to verify your account. Please sign in again.');
+    }
+    return this.profileFields.uid;
+  }
+
+  getPersonalInfo(): PersonalInfoFields {
+    return this.profileFields.personalInfo.personalInfoFields;
+  }
+
+  getVehicle(): VehicleInfoFields {
+    return this.profileFields.vehicle.vehicleInfoFields;
+  }
+
+  getEmergencyContact(): EmergencyContactFields {
+    return this.profileFields.emergencyContact.emergencyContactFields;
   }
 }
+
+export type ProfileFields = {
+  uid?: string;
+  personalInfo: PersonalInfo;
+  vehicle: Vehicle;
+  emergencyContact: EmergencyContact;
+};

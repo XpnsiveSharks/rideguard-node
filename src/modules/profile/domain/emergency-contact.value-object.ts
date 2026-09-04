@@ -1,7 +1,9 @@
-export class EmergencyContact {
-  private constructor(public readonly emergencyContactInfo: EmergencyContactInfo) {}
+import { parseOptionalEnumValue } from '@/common/helpers/enum-parser';
 
-  static create(emergencyContactInfo: EmergencyContactInfo): EmergencyContact {
+export class EmergencyContact {
+  private constructor(public readonly emergencyContactFields: EmergencyContactFields) {}
+
+  static create(emergencyContactInfo: EmergencyContactFields): EmergencyContact {
     const { contactName, phoneNumber, relationship } = emergencyContactInfo;
     return !contactName
       ? new EmergencyContact({
@@ -28,18 +30,20 @@ export class EmergencyContact {
             });
   }
 
+  getContactName(): string | undefined {
+    return this.emergencyContactFields.contactName;
+  }
+
+  getPhoneNumber(): string | undefined {
+    return this.emergencyContactFields.phoneNumber;
+  }
+
+  getRelationship(): Relationship | undefined {
+    return this.emergencyContactFields.relationship as Relationship | undefined;
+  }
+
   private static parseRelationship(value: string | undefined): Relationship | undefined {
-    if (value === undefined) return undefined;
-
-    const relationship = value.trim();
-
-    if (!Object.values(Relationship).includes(relationship as Relationship)) {
-      throw new Error(
-        `Invalid relationship "${relationship}". Please select a valid relationship type.`,
-      );
-    }
-
-    return relationship as Relationship;
+    return parseOptionalEnumValue(value, Relationship, 'relationship');
   }
 }
 
@@ -56,7 +60,7 @@ export enum Relationship {
   Other = 'Other',
 }
 
-type EmergencyContactInfo = {
+export type EmergencyContactFields = {
   contactName?: string;
   phoneNumber?: string;
   relationship?: string;

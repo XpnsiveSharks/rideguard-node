@@ -1,25 +1,29 @@
 import { BadRequestException } from '@nestjs/common';
 
 export class Vehicle {
-  private constructor(public readonly vehicleInfo: VehicleInfo) {}
+  private constructor(public vehicleInfoFields: VehicleInfoFields) {}
 
-  static create(vehicleInfo: VehicleInfo): Vehicle {
+  static create(vehicleInfo: VehicleInfoFields): Vehicle {
     const trimmedVehicle = vehicleInfo.vehicleName.trim();
-    const trimmedPlateNumber = vehicleInfo.plateNumber.trim();
-
     if (!trimmedVehicle) {
       throw new BadRequestException('Vehicle is required');
     }
 
+    const trimmedPlateNumber = vehicleInfo.plateNumber.trim();
     if (!trimmedPlateNumber) {
       throw new BadRequestException('Plate number is required');
     }
 
-    return new Vehicle(vehicleInfo);
+    return new Vehicle({
+      vehicleName: vehicleInfo.vehicleName,
+      plateNumber: vehicleInfo.plateNumber,
+      color: !vehicleInfo.color ? 'not set' : vehicleInfo.color,
+    });
   }
 }
 
-type VehicleInfo = {
+export type VehicleInfoFields = {
   vehicleName: string;
   plateNumber: string;
+  color?: string;
 };
