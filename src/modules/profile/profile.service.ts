@@ -12,9 +12,9 @@ export class ProfileService {
 
   // Creates a new profile for the user
   async createProfile(input: CreateProfileInput): Promise<void> {
-    const personalInfo = PersonalInfo.create(input.personalInfo);
+    const personalInfo = PersonalInfo.create(input.personalInfoFields);
 
-    const vehicle = Vehicle.create(input.vehicleInfo);
+    const vehicle = Vehicle.create(input.vehicleInfoFields);
 
     const emergencyContact = EmergencyContact.create(input.emergencyContactFields);
 
