@@ -30,6 +30,18 @@ export class EmergencyContact {
             });
   }
 
+  getContactName(): string | undefined {
+    return this.emergencyContactFields.contactName;
+  }
+
+  getPhoneNumber(): string | undefined {
+    return this.emergencyContactFields.phoneNumber;
+  }
+
+  getRelationship(): Relationship | undefined {
+    return this.emergencyContactFields.relationship as Relationship | undefined;
+  }
+
   private static parseRelationship(value: string | undefined): Relationship | undefined {
     return parseOptionalEnumValue(value, Relationship, 'relationship');
   }

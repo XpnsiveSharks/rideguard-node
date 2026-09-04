@@ -1,8 +1,11 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { Firestore } from 'firebase-admin/firestore';
 import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
-import { Profile } from '../domain/profile.entity';
-import { EmergencyContact } from '../domain/emergency-contact.value-object';
+import { Profile } from '../../domain/profile.entity';
+import { EmergencyContact } from '../../domain/emergency-contact.value-object';
+import { FieldValue } from 'firebase-admin/firestore';
+import { ProfileMapper } from './profile.mapper';
+import { EmergencyContactMapper } from './emergency-contact.mapper';
 
 const PROFILES_COLLECTION = 'profiles';
 
@@ -15,10 +18,8 @@ export class ProfileRepository {
       .collection(PROFILES_COLLECTION)
       .doc(profile.getUid())
       .create({
-        uid: profile.getUid(),
-        personalInfo: profile.getPersonalInfo(),
-        vehicle: profile.getVehicle(),
-        emergencyContact: profile.getEmergencyContact(),
+        ...ProfileMapper.toPersistence(profile),
+        createdAt: FieldValue.serverTimestamp(),
       });
   }
 
@@ -26,7 +27,13 @@ export class ProfileRepository {
     await this.firestoreClient
       .collection(PROFILES_COLLECTION)
       .doc(uid)
-      .set({ emergencyContact: emergencyContact.emergencyContactFields }, { merge: true });
+      .set(
+        {
+          ...EmergencyContactMapper.toPersistence(emergencyContact),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
   }
 
   async findProfileByUid(uid: string): Promise<boolean> {
