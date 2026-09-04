@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 
 export class PersonalInfo {
-  private constructor(public readonly personalInfo: Info) {}
+  private constructor(public personalInfoFields: Info) {}
 
   static create(info: Info): PersonalInfo {
     const trimmedFirstName = info.firstName.trim();
@@ -29,7 +29,7 @@ export class PersonalInfo {
   }
 }
 
-type Info = {
+export type Info = {
   firstName: string;
   lastName: string;
   phoneNumber: string;

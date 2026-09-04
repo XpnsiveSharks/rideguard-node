@@ -12,24 +12,16 @@ export class ProfileRepository {
   constructor(@Inject(FIREBASE_FIRESTORE) private readonly firestoreClient: Firestore) {}
 
   async saveProfile(profile: Profile): Promise<void> {
-    try {
-      await this.firestoreClient
-        .collection(PROFILES_COLLECTION)
-        .doc(profile.getUid())
-        .create({
-          ...profile.getPersonalInfo(),
-          ...profile.getVehicle(),
-          ...profile.getEmergencyContact(),
-        });
-    } catch (error) {
-      const code = (error as { code?: unknown }).code;
-      if (code === ALREADY_EXISTS_ERROR_CODE) {
-        throw new ConflictException('Profile with this email already exists.');
-      }
-
-      throw error;
-    }
+    await this.firestoreClient
+      .collection(PROFILES_COLLECTION)
+      .doc(profile.getUid())
+      .create({
+        ...profile.getPersonalInfo(),
+        ...profile.getVehicle(),
+        ...profile.getEmergencyContact(),
+      });
   }
+
   async saveContactInfo(uid: string, emergencyContact: EmergencyContact): Promise<void> {
     console.table(emergencyContact.emergencyContactInfo);
     await this.firestoreClient
