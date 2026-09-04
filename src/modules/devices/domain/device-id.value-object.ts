@@ -29,11 +29,19 @@ export class DeviceId {
     return new DeviceId(trimmedValue);
   }
 
-  public static generate(): DeviceId {
+  public static generate(): string {
     const letters = DeviceId.generateRandomLetters(DEVICE_ID_LETTER_COUNT);
     const numbers = DeviceId.generateRandomNumberPart();
 
-    return new DeviceId(`${letters}${DEVICE_ID_SEPARATOR}${numbers}`);
+    return new DeviceId(`${letters}${DEVICE_ID_SEPARATOR}${numbers}`).toString();
+  }
+
+  public static isEmpty(value: string): void {
+    const trimmedValue = value?.trim();
+
+    if (!trimmedValue) {
+      throw new BadRequestException('Device ID is required');
+    }
   }
 
   public toString(): string {

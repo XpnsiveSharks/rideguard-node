@@ -6,8 +6,7 @@ import { EmergencyContact } from '../domain/emergency-contact.value-object';
 import { FieldValue } from 'firebase-admin/firestore';
 import { ProfileMapper } from './profile.mapper';
 import { EmergencyContactMapper } from './emergency-contact.mapper';
-
-const PROFILES_COLLECTION = 'profiles';
+import { PROFILES_COLLECTION } from './profile.document';
 
 @Injectable()
 export class ProfileRepository {

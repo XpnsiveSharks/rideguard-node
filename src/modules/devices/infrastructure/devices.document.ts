@@ -9,4 +9,5 @@ export type DeviceDocument = {
   status: DeviceStatus;
   assignedUserId?: string;
   createdAt: Timestamp;
+  updatedAt?: Timestamp;
 };

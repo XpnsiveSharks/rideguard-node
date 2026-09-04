@@ -47,6 +47,13 @@ export class Device {
   getStatus(): DeviceStatus {
     return this.deviceInfo.status as DeviceStatus;
   }
+
+  getAssignedUserId(): string {
+    if (!this.deviceInfo.assignedUserId) {
+      throw new BadRequestException('Assigned user ID is required');
+    }
+    return this.deviceInfo.assignedUserId;
+  }
 }
 
 export enum DeviceType {

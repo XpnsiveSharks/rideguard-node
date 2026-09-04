@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, UnprocessableEntityException } from '@nestjs/common';
 import { PersonalInfo } from './domain/personal-info.value-object';
 import { Profile } from './domain/profile.entity';
 import { ProfileRepository } from './infrastructure/profile.repository';
@@ -34,7 +34,9 @@ export class ProfileService {
     emergencyContactInput: EmergencyContactFields,
   ): Promise<void> {
     if (!uid || uid.trim() === '') {
-      throw new UnauthorizedException("We couldn't verify your account");
+      throw new UnprocessableEntityException(
+        'We could not verify your account. Please log in again.',
+      );
     }
 
     const emergencyContact = EmergencyContact.create(emergencyContactInput);

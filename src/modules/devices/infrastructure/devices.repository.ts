@@ -5,7 +5,6 @@ import { Device } from '../domain/device.entity';
 import { DeviceMapper } from './devices.mapper';
 import { FieldValue } from 'firebase-admin/firestore';
 import { DeviceDocument, DEVICES_COLLECTION } from './devices.document';
-import { DeviceId } from '../domain/device-id.value-object';
 
 @Injectable()
 export class DeviceRepository {
@@ -18,24 +17,18 @@ export class DeviceRepository {
       .create({ ...DeviceMapper.toPersistence(device), createdAt: FieldValue.serverTimestamp() });
   }
 
-  async updateDevice(deviceId: DeviceId, UpdateQuery: Partial<Device>): Promise<Device> {
+  async updateDevice(deviceId: string, UpdateQuery: Partial<Device>): Promise<Device> {
     await this.firestoreClient
       .collection(DEVICES_COLLECTION)
-      .doc(deviceId.toString())
+      .doc(deviceId)
       .set({ ...UpdateQuery, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
 
-    const deviceDoc = await this.firestoreClient
-      .collection(DEVICES_COLLECTION)
-      .doc(deviceId.toString())
-      .get();
+    const deviceDoc = await this.firestoreClient.collection(DEVICES_COLLECTION).doc(deviceId).get();
     return DeviceMapper.toDomain(deviceDoc.data() as DeviceDocument);
   }
 
-  async findDeviceById(deviceId: DeviceId): Promise<Device | null> {
-    const deviceDoc = await this.firestoreClient
-      .collection(DEVICES_COLLECTION)
-      .doc(deviceId.toString())
-      .get();
+  async findDeviceById(deviceId: string): Promise<Device | null> {
+    const deviceDoc = await this.firestoreClient.collection(DEVICES_COLLECTION).doc(deviceId).get();
     if (!deviceDoc.exists) {
       return null;
     }
