@@ -3,6 +3,7 @@ import { Firestore } from 'firebase-admin/firestore';
 import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
 import { Device } from '../domain/device.entity';
 import { DeviceMapper } from './devices.mapper';
+import { FieldValue } from 'firebase-admin/firestore';
 
 const DEVICES_COLLECTION = 'devices';
 
@@ -14,6 +15,6 @@ export class DeviceRepository {
     await this.firestoreClient
       .collection(DEVICES_COLLECTION)
       .doc()
-      .create(DeviceMapper.toPersistence(device));
+      .create({ ...DeviceMapper.toPersistence(device), createdAt: FieldValue.serverTimestamp() });
   }
 }
