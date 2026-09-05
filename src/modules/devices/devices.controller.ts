@@ -9,6 +9,7 @@ import { Public } from '@/common/decorators/public.decorator';
 export class DevicesController {
   constructor(private readonly devicesService: DevicesService) {}
 
+  // ADMIN ROUTE
   // route: POST /devices/register-device
   @Post('register-device')
   registerDevice(
@@ -20,12 +21,14 @@ export class DevicesController {
     });
   }
 
+  // MOBILE ROUTE
   // route: PATCH /devices/claim-device/:device_id
   @Patch('claim-device/:device_id')
   assignDeviceToUser(@Param('device_id') deviceId: string, @Req() req: Request) {
     return this.devicesService.assignDeviceToUser(deviceId, req.user?.uid);
   }
 
+  // HARDWARE ROUTE
   // route: PATCH /devices/activate-device/:device_id
   // 400 - Bad Request: Invalid device ID format or missing required fields.
   // 404 - Not Found: Device with the specified ID does not exist.
