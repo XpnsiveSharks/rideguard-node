@@ -11,6 +11,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ProfileModule } from './modules/profile/profile.module';
 import { FirebaseModule } from './infra/firebase/firebase.module';
+import { AblyModule } from './infra/ably/ably.module';
 import { APP_PIPE } from '@nestjs/core';
 import { AppValidationPipe } from './common/pipes/app-validation.pipe';
 import { DevicesModule } from './modules/devices/devices.module';
@@ -27,6 +28,7 @@ import { DevicesModule } from './modules/devices/devices.module';
     AuthModule,
     HealthModule,
     FirebaseModule,
+    AblyModule,
     ProfileModule,
     DevicesModule,
   ],

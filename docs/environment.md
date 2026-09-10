@@ -25,6 +25,7 @@ Copy-Item .env.example .env
 | `FIREBASE_PROJECT_ID` | string | `rideguard-dev` | Firebase project ID from the service account. |
 | `FIREBASE_CLIENT_EMAIL` | email string | `firebase-adminsdk-...@...iam.gserviceaccount.com` | Firebase service account client email. |
 | `FIREBASE_PRIVATE_KEY` | string | `"-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"` | Firebase service account private key. Keep the escaped `\n` characters in `.env`. |
+| `ABLY_API_KEY` | string | `appId.keyId:keySecret` | Ably API key used by the shared REST client. See [Ably](ably.md). |
 
 ## How Validation Works
 
@@ -41,6 +42,7 @@ export interface EnvironmentVariables {
   FIREBASE_PROJECT_ID: string;
   FIREBASE_CLIENT_EMAIL: string;
   FIREBASE_PRIVATE_KEY: string;
+  ABLY_API_KEY: string;
 }
 ```
 
@@ -66,6 +68,11 @@ export const envValidationSchema = Joi.object<EnvironmentVariables, true>({
     .required()
     .pattern(/-----BEGIN PRIVATE KEY-----/)
     .message('FIREBASE_PRIVATE_KEY must be a PEM-encoded private key'),
+
+  ABLY_API_KEY: Joi.string()
+    .required()
+    .pattern(ABLY_API_KEY_PATTERN)
+    .message('ABLY_API_KEY must look like appId.keyId:keySecret'),
 });
 ```
 
@@ -140,3 +147,31 @@ CORS_ORIGINS=https://admin.rideguard.com
 
 The value is one string, split on commas in `main.ts`. Surrounding spaces are
 trimmed, so `a.com, b.com` is fine.
+
+## Secrets In Deployment
+
+`.env` is git-ignored and only exists on a developer machine. Deployed
+environments get the same variables from **Azure App Service application
+settings**, which the platform injects as process environment variables before
+the app starts, so `ConfigService` reads them with no code change.
+
+Set or rotate a secret:
+
+```bash
+az webapp config appsettings set \
+  --name rideguard-api \
+  --resource-group <resource-group> \
+  --settings ABLY_API_KEY='appId.keyId:keySecret'
+```
+
+Or in the portal: **App Service → Settings → Environment variables →
+Application settings**. Saving restarts the app, and because every secret is
+`required()` in the Joi schema, a missing or malformed one fails the restart
+with an error naming the variable rather than booting a half-configured app.
+
+Two rules for anything secret:
+
+- Never commit a real value. `.env.example` carries placeholders only.
+- Never add one to `.github/workflows/`. The deploy workflow authenticates with
+  `AZURE_WEBAPP_PUBLISH_PROFILE` and builds a package; it never sees the
+  runtime secrets, and the app it deploys reads them from App Service.

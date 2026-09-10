@@ -17,6 +17,8 @@ yarn dev
   adding new variables.
 - [Code organization](docs/code-organization.md) - which folder code belongs in,
   and when to split something into its own file.
+- [Ably](docs/ably.md) - the shared realtime client, its API key, and the
+  connectivity check.
 - [Response messages](docs/response-message.md) - how to customize successful
   response messages with `@ResponseMessage()`.
 - [V1 routes](docs/v1-auth-profile-routes.md) - route documentation
