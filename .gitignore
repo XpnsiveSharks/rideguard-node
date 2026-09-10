@@ -60,6 +60,5 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 .yarn/
 
 yarn.lock
-package-lock.json
 
 Google Auth Client Secret.json
