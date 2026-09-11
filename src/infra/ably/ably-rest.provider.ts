@@ -12,11 +12,13 @@ export const createAblyRestClient = (
       logLevel: ABLY_LOG_LEVEL_ERRORS_ONLY,
     });
   } catch {
-    throw new Error('Failed to initialize the Ably client: ABLY_API_KEY was rejected by the SDK');
+    throw new Error(
+      'Failed to initialize the Ably REST client: ABLY_API_KEY was rejected by the SDK',
+    );
   }
 };
 
-export const AblyProvider = {
+export const AblyRestProvider = {
   provide: ABLY_REST,
   inject: [ConfigService],
   useFactory: createAblyRestClient,
