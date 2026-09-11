@@ -20,6 +20,10 @@ async function bootstrap() {
     bufferLogs: true,
   });
 
+  // Lets Nest run onModuleDestroy() on SIGTERM/SIGINT, which is how the Ably
+  // Realtime connection gets closed instead of dropped.
+  app.enableShutdownHooks();
+
   const configService = app.get<ConfigService<EnvironmentVariables, true>>(ConfigService);
   const port = configService.get('PORT', { infer: true });
   const nodeEnv = configService.get('NODE_ENV', { infer: true });
