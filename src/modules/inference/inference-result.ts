@@ -9,18 +9,24 @@ export type InferenceResult = {
     objects: DetectedObject[];
   };
   violence: ViolenceResult;
-  image: InferenceImage;
+  image: InferenceImage | null;
 };
 
-export type InferenceImage = {
-  status: string;
-  provider: string;
-  url: string;
-  public_id: string;
-  format: string;
-  width: number;
-  height: number;
-};
+export type InferenceImage =
+  | {
+      status: 'uploaded';
+      provider: 'cloudinary';
+      url: string;
+      public_id: string;
+      format: string;
+      width: number;
+      height: number;
+    }
+  | {
+      status: 'upload_failed';
+      provider: 'cloudinary';
+      url: null;
+    };
 
 export type DetectedObject = {
   label: string;

@@ -41,7 +41,19 @@ export class InferenceSubscriberService {
 
   private processMessage(message: InboundMessage): void {
     const result = this.parseMessage(message.data);
-    this.logger.debug(`Received inference result: ${JSON.stringify(result)}`);
+    this.logger.log(
+      {
+        eventId: result.event_id,
+        deviceId: result.device_id,
+        objectCount: result.detections.objects.length,
+        objects: result.detections.objects.map(({ label, confidence }) => ({
+          label,
+          confidence,
+        })),
+        imageStatus: result.image?.status ?? 'none',
+      },
+      'Received inference result',
+    );
     // add idempotency here
     // other processing logic for the inference result can be added here
   }

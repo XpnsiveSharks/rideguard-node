@@ -24,13 +24,11 @@ const detectedObjectSchema = Joi.object<DetectedObject>({
   confidence: Joi.number().min(0).max(1).required(),
 
   box: boundingBoxSchema,
-})
-  .required()
-  .unknown(false);
+}).unknown(false);
 
-const inferenceImageSchema = Joi.object<InferenceImage>({
-  status: Joi.string().trim().required(),
-  provider: Joi.string().trim().required(),
+const uploadedImageSchema = Joi.object({
+  status: Joi.string().valid('uploaded').required(),
+  provider: Joi.string().valid('cloudinary').required(),
 
   url: Joi.string()
     .uri({ scheme: ['https'] })
@@ -42,9 +40,18 @@ const inferenceImageSchema = Joi.object<InferenceImage>({
 
   width: Joi.number().integer().positive().required(),
   height: Joi.number().integer().positive().required(),
-})
-  .required()
-  .unknown(false);
+}).unknown(false);
+
+const failedImageSchema = Joi.object({
+  status: Joi.string().valid('upload_failed').required(),
+  provider: Joi.string().valid('cloudinary').required(),
+  url: Joi.any().valid(null).required(),
+}).unknown(false);
+
+const inferenceImageSchema = Joi.alternatives<InferenceImage>().try(
+  uploadedImageSchema,
+  failedImageSchema,
+);
 
 const violenceResultSchema = Joi.object<ViolenceResult>({
   status: Joi.string().trim().required(),
@@ -72,7 +79,7 @@ export const inferenceResultSchema = Joi.object<InferenceResult>({
     .unknown(false),
 
   violence: violenceResultSchema,
-  image: inferenceImageSchema,
+  image: inferenceImageSchema.allow(null).required(),
 })
   .required()
   .unknown(false);
