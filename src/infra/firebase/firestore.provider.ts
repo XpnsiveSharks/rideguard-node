@@ -6,10 +6,6 @@ export const FirestoreProvider = {
   provide: FIREBASE_FIRESTORE,
   inject: [FIREBASE_APP],
 
-  /* getFirestore() only creates the client and doesn't make a network request.
-   * But invalid config like a wrong project ID or bad credentials can still fail here.
-   * We wrap it so the error is easier to understand.
-   */
   useFactory: (app: App): Firestore => {
     try {
       const firestore = getFirestore(app);
