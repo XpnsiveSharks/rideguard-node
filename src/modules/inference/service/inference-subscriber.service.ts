@@ -51,6 +51,7 @@ export class InferenceSubscriberService {
           confidence,
         })),
         imageStatus: result.image?.status ?? 'none',
+        url: result.image?.url ?? 'none',
       },
       'Received inference result',
     );
