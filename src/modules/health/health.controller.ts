@@ -14,4 +14,12 @@ export class HealthController {
   checkFirestore() {
     return this.healthService.checkFirestore();
   }
+
+  // route: GET /health/ably
+  @Public()
+  @Get('ably')
+  @ResponseMessage('Ably connection is healthy')
+  checkAbly() {
+    return this.healthService.checkAbly();
+  }
 }

@@ -12,9 +12,13 @@ export interface EnvironmentVariables {
   FIREBASE_PROJECT_ID: string;
   FIREBASE_CLIENT_EMAIL: string;
   FIREBASE_PRIVATE_KEY: string;
+  ABLY_API_KEY: string;
+  UPSTREAM_ABLY_API_KEY: string;
   THROTTLE_TTL: number;
   THROTTLE_LIMIT: number;
 }
+
+const ABLY_API_KEY_PATTERN = /^[\w-]+\.[\w-]+:[\w=-]+$/;
 
 export const envValidationSchema = Joi.object<EnvironmentVariables, true>({
   NODE_ENV: Joi.string()
@@ -36,6 +40,16 @@ export const envValidationSchema = Joi.object<EnvironmentVariables, true>({
     .required()
     .pattern(/-----BEGIN PRIVATE KEY-----/)
     .message('FIREBASE_PRIVATE_KEY must be a PEM-encoded private key'),
+
+  ABLY_API_KEY: Joi.string()
+    .required()
+    .pattern(ABLY_API_KEY_PATTERN)
+    .message('ABLY_API_KEY must look like appId.keyId:keySecret'),
+
+  UPSTREAM_ABLY_API_KEY: Joi.string()
+    .required()
+    .pattern(ABLY_API_KEY_PATTERN)
+    .message('UPSTREAM_ABLY_API_KEY must look like appId.keyId:keySecret'),
 
   THROTTLE_TTL: Joi.number().integer().positive().default(60000), // Default length in milliseconds
   THROTTLE_LIMIT: Joi.number().integer().positive().default(100), // Default max requests a single client gets within that window.
