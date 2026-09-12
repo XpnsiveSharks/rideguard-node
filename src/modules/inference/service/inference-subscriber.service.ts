@@ -4,6 +4,7 @@ import { Logger } from 'nestjs-pino';
 import { inferenceResultSchema } from '../inference-result.schema';
 import { InferenceResult } from '../inference-result';
 import { ABLY_REALTIME } from '@/infra/ably/ably.constants';
+import { InferenceHandlingService } from './inference-handling.service';
 
 const CHANNEL_NAME = 'rideguard-inference-results';
 const EVENT_NAME = 'inference.result';
@@ -15,6 +16,7 @@ export class InferenceSubscriberService {
     @Inject(ABLY_REALTIME)
     private readonly realtime: Realtime,
     private readonly logger: Logger,
+    private readonly inferenceHandlingService: InferenceHandlingService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -29,17 +31,15 @@ export class InferenceSubscriberService {
   }
 
   private readonly handleMessage = (message: InboundMessage): void => {
-    try {
-      this.processMessage(message);
-    } catch (error: unknown) {
+    void this.processMessage(message).catch((error: unknown) => {
       this.logger.error(
         { err: error, messageId: message.id },
         'Failed to process inference result',
       );
-    }
+    });
   };
 
-  private processMessage(message: InboundMessage): void {
+  private async processMessage(message: InboundMessage): Promise<void> {
     const result = this.parseMessage(message.data);
     this.logger.log(
       {
@@ -55,8 +55,8 @@ export class InferenceSubscriberService {
       },
       'Received inference result',
     );
-    // add idempotency here
-    // other processing logic for the inference result can be added here
+
+    await this.inferenceHandlingService.handleResult(result);
   }
 
   private parseMessage(data: unknown): InferenceResult {
