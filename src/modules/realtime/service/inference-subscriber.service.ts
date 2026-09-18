@@ -1,8 +1,8 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { InboundMessage, Realtime, RealtimeChannel } from 'ably';
 import { Logger } from 'nestjs-pino';
-import { inferenceResultSchema } from '../inference-result.schema';
-import { InferenceResult } from '../inference-result';
+import { inferenceResultSchema } from '../realtime';
+import { InferenceResult } from '../realtime-result';
 import { ABLY_REALTIME } from '@/infra/ably/ably.constants';
 import { InferenceHandlingService } from './inference-handling.service';
 
@@ -41,20 +41,20 @@ export class InferenceSubscriberService {
 
   private async processMessage(message: InboundMessage): Promise<void> {
     const result = this.parseMessage(message.data);
-    this.logger.log(
-      {
-        eventId: result.event_id,
-        deviceId: result.device_id,
-        objectCount: result.detections.objects.length,
-        objects: result.detections.objects.map(({ label, confidence }) => ({
-          label,
-          confidence,
-        })),
-        imageStatus: result.image?.status ?? 'none',
-        url: result.image?.url ?? 'none',
-      },
-      'Received inference result',
-    );
+    // this.logger.log(
+    //   {
+    //     eventId: result.event_id,
+    //     deviceId: result.device_id,
+    //     objectCount: result.detections.objects.length,
+    //     objects: result.detections.objects.map(({ label, confidence }) => ({
+    //       label,
+    //       confidence,
+    //     })),
+    //     imageStatus: result.image?.status ?? 'none',
+    //     url: result.image?.url ?? 'none',
+    //   },
+    //   'Received inference result',
+    // );
 
     await this.inferenceHandlingService.handleResult(result);
   }

@@ -15,7 +15,8 @@ import { AblyModule } from './infra/ably/ably.module';
 import { APP_PIPE } from '@nestjs/core';
 import { AppValidationPipe } from './common/pipes/app-validation.pipe';
 import { DevicesModule } from './modules/devices/devices.module';
-import { InferenceModule } from './modules/inference/inference.module';
+import { RealtimeModule } from './modules/realtime/realtime.module';
+import { AlertsModule } from './modules/alerts/alerts.module';
 
 @Module({
   imports: [
@@ -32,7 +33,8 @@ import { InferenceModule } from './modules/inference/inference.module';
     AblyModule,
     ProfileModule,
     DevicesModule,
-    InferenceModule,
+    RealtimeModule,
+    AlertsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
