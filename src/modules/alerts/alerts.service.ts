@@ -6,7 +6,7 @@ import { Alert } from './domain/alerts.entity';
 export class AlertsService {
   constructor(private readonly alertsRepository: AlertsRepository) {}
 
-  async createAlert(alert: Alert): Promise<Alert> {
-    return this.alertsRepository.save(alert);
+  async createAlert(alert: Alert): Promise<void> {
+    await this.alertsRepository.save(alert);
   }
 }

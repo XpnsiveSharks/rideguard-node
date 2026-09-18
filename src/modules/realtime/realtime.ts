@@ -5,7 +5,7 @@ import type {
   InferenceImage,
   InferenceResult,
   ViolenceResult,
-} from './inference-result';
+} from './realtime-result';
 
 const boundingBoxSchema = Joi.object<BoundingBox>({
   x1: Joi.number().min(0).required(),

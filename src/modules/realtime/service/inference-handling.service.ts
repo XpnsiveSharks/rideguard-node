@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InferenceResult } from '../inference-result';
+import { InferenceResult } from '../realtime-result';
 import { Alert } from '@/modules/alerts/domain/alerts.entity';
 import { DeviceId } from '@/modules/devices/domain/device-id.value-object';
 import { Logger } from 'nestjs-pino';
@@ -30,6 +30,8 @@ export class InferenceHandlingService {
         isFalseAlarm: false,
         isSeen: false,
       });
+
+      this.logger.log(`Creating alert for device ${JSON.stringify(alert)}`);
 
       await this.alertsService.createAlert(alert);
       // NOTE: add live map here
