@@ -34,4 +34,12 @@ export class DeviceRepository {
     }
     return DeviceMapper.toDomain(deviceDoc.data() as DeviceDocument);
   }
+
+  async findAssignedUserIdByDeviceId(deviceId: string): Promise<Device | null> {
+    const deviceDoc = await this.firestoreClient.collection(DEVICES_COLLECTION).doc(deviceId).get();
+    if (!deviceDoc.exists) {
+      return null;
+    }
+    return DeviceMapper.toDomain(deviceDoc.data() as DeviceDocument);
+  }
 }
