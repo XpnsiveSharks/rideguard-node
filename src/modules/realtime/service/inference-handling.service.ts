@@ -18,10 +18,11 @@ export class InferenceHandlingService {
     const imageUrl = image?.url ?? null;
     const deviceId = DeviceId.create(device_id).toString();
     const capturedAt = new Date(captured_at);
-    const objectConfidence = detections.objects.reduce((acc, obj) => acc + obj.confidence, 0);
-    const alertMessage = this.buildAlertMessage(violence?.confidence ?? 0, objectConfidence);
+    const hasWeapon = detections.objects.length > 0;
+    const hasFreshViolence = violence?.label === 'violent' && violence?.inference_ran === true;
+    const alertMessage = this.buildAlertMessage(hasWeapon, hasFreshViolence);
 
-    if (imageUrl) {
+    if (imageUrl && alertMessage) {
       const alert = Alert.create({
         deviceId: deviceId,
         message: alertMessage,
@@ -38,16 +39,16 @@ export class InferenceHandlingService {
     }
   }
 
-  private buildAlertMessage(violenceConfidence: number, objectConfidence: number): string {
-    if (violenceConfidence > 0 && objectConfidence > 0) {
+  private buildAlertMessage(hasWeapon: boolean, hasFreshViolence: boolean): string | null {
+    if (hasWeapon && hasFreshViolence) {
       return `Violence and weapon detected`;
     }
-    if (violenceConfidence > 0 && objectConfidence === 0) {
-      return `Violence detected`;
-    }
-    if (violenceConfidence === 0 && objectConfidence > 0) {
+    if (hasWeapon) {
       return `Weapon detected`;
     }
-    return `No threat detected`;
+    if (hasFreshViolence) {
+      return `Violence detected`;
+    }
+    return null;
   }
 }

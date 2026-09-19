@@ -41,20 +41,6 @@ export class InferenceSubscriberService {
 
   private async processMessage(message: InboundMessage): Promise<void> {
     const result = this.parseMessage(message.data);
-    // this.logger.log(
-    //   {
-    //     eventId: result.event_id,
-    //     deviceId: result.device_id,
-    //     objectCount: result.detections.objects.length,
-    //     objects: result.detections.objects.map(({ label, confidence }) => ({
-    //       label,
-    //       confidence,
-    //     })),
-    //     imageStatus: result.image?.status ?? 'none',
-    //     url: result.image?.url ?? 'none',
-    //   },
-    //   'Received inference result',
-    // );
 
     await this.inferenceHandlingService.handleResult(result);
   }

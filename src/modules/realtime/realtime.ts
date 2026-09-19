@@ -54,6 +54,7 @@ const inferenceImageSchema = Joi.alternatives<InferenceImage>().try(
 );
 
 const violenceResultSchema = Joi.object<ViolenceResult>({
+  inference_ran: Joi.boolean().required(),
   status: Joi.string().trim().required(),
   label: Joi.string().trim().allow(null).required(),
   confidence: Joi.number().min(0).max(1).allow(null).required(),
