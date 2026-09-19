@@ -33,6 +33,9 @@ export class InferenceHandlingService {
       });
 
       this.logger.log(`Creating alert for device ${JSON.stringify(alert)}`);
+      this.logger.log(
+        `With object confidence: ${JSON.stringify(detections.objects)}, and violence inference: ${JSON.stringify(violence)}`,
+      );
 
       await this.alertsService.createAlert(alert);
       // NOTE: add live map here
