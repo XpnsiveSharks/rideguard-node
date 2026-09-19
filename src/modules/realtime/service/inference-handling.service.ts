@@ -1,20 +1,38 @@
 import { Injectable } from '@nestjs/common';
 import { InferenceResult } from '../realtime-result';
-import { Alert } from '@/modules/alerts/domain/alerts.entity';
+import { AlertFields } from '@/modules/alerts/domain/alerts.entity';
 import { DeviceId } from '@/modules/devices/domain/device-id.value-object';
-import { Logger } from 'nestjs-pino';
 import { AlertsService } from '@/modules/alerts/alerts.service';
-
+import { RealtimePublisherService } from './realtime-publishing.service';
+import { REALTIME_CHANNELS } from './realtime.constants';
+import { DevicesService } from '@/modules/devices/devices.service';
 @Injectable()
 export class InferenceHandlingService {
   constructor(
-    private readonly logger: Logger,
     private readonly alertsService: AlertsService,
+    private readonly realtimePublisherService: RealtimePublisherService,
+    private readonly deviceService: DevicesService,
   ) {}
+
   async handleResult(result: InferenceResult): Promise<void> {
     // NOTE: add idempotency for event id
 
+    const alert = this.prepareInferenceResult(result);
+    const deviceId = alert.deviceId;
+
+    if (alert.message) {
+      const newAlert = await this.alertsService.createAlert(alert);
+
+      const assignedUserId = await this.deviceService.findAssignedUserByDeviceId(deviceId);
+      const channelName = REALTIME_CHANNELS.alerts(assignedUserId, deviceId);
+
+      await this.realtimePublisherService.publishAlert(channelName, newAlert);
+    }
+  }
+
+  private prepareInferenceResult(result: InferenceResult): AlertFields {
     const { device_id, captured_at, detections, violence, image } = result;
+
     const imageUrl = image?.url ?? null;
     const deviceId = DeviceId.create(device_id).toString();
     const capturedAt = new Date(captured_at);
@@ -22,27 +40,17 @@ export class InferenceHandlingService {
     const hasFreshViolence = violence?.label === 'violent' && violence?.inference_ran === true;
     const alertMessage = this.buildAlertMessage(hasWeapon, hasFreshViolence);
 
-    if (imageUrl && alertMessage) {
-      const alert = Alert.create({
-        deviceId: deviceId,
-        message: alertMessage,
-        imageUrl: imageUrl,
-        timeStamp: capturedAt,
-        isFalseAlarm: false,
-        isSeen: false,
-      });
-
-      this.logger.log(`Creating alert for device ${JSON.stringify(alert)}`);
-      this.logger.log(
-        `With object confidence: ${JSON.stringify(detections.objects)}, and violence inference: ${JSON.stringify(violence)}`,
-      );
-
-      await this.alertsService.createAlert(alert);
-      // NOTE: add live map here
-    }
+    return {
+      deviceId: deviceId,
+      message: alertMessage,
+      imageUrl: imageUrl,
+      timeStamp: capturedAt,
+      isFalseAlarm: false,
+      isSeen: false,
+    };
   }
 
-  private buildAlertMessage(hasWeapon: boolean, hasFreshViolence: boolean): string | null {
+  private buildAlertMessage(hasWeapon: boolean, hasFreshViolence: boolean): string {
     if (hasWeapon && hasFreshViolence) {
       return `Violence and weapon detected`;
     }
@@ -52,6 +60,6 @@ export class InferenceHandlingService {
     if (hasFreshViolence) {
       return `Violence detected`;
     }
-    return null;
+    return `Nothing was detected here`;
   }
 }
