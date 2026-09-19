@@ -45,4 +45,5 @@ export type ViolenceResult = {
   status: string;
   label: string | null;
   confidence: number | null;
+  inference_ran: boolean;
 };
