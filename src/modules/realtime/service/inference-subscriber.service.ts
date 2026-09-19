@@ -1,6 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { InboundMessage, Realtime, RealtimeChannel } from 'ably';
-import { Logger } from 'nestjs-pino';
+import { PinoLogger } from 'nestjs-pino';
 import { inferenceResultSchema } from '../realtime';
 import { InferenceResult } from '../realtime-result';
 import { ABLY_REALTIME } from '@/infra/ably/ably.constants';
@@ -15,13 +15,13 @@ export class InferenceSubscriberService {
   constructor(
     @Inject(ABLY_REALTIME)
     private readonly realtime: Realtime,
-    private readonly logger: Logger,
+    private readonly logger: PinoLogger,
     private readonly inferenceHandlingService: InferenceHandlingService,
   ) {}
 
   async onModuleInit(): Promise<void> {
     this.channel = this.realtime.channels.get(CHANNEL_NAME);
-    this.logger.log(`Subscribing to channel: ${CHANNEL_NAME}`);
+    this.logger.info(`Subscribing to channel: ${CHANNEL_NAME}`);
     await this.channel.subscribe(EVENT_NAME, this.handleMessage);
   }
 
