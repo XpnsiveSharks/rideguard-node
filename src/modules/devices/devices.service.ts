@@ -85,4 +85,9 @@ export class DevicesService {
 
     return assignedUserId;
   }
+
+  // *** GET DEVICE IDS BY ASSIGNED USER ID - USER ***
+  async findDeviceIdsByAssignedUser(assignedUserId: string): Promise<string[]> {
+    return await this.deviceRepository.findDeviceIdsByAssignedUser(assignedUserId);
+  }
 }
