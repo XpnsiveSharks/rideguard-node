@@ -1,12 +1,35 @@
 import { Injectable } from '@nestjs/common';
 import { AlertsRepository } from './infrastructure/alerts.repository';
-import { Alert } from './domain/alerts.entity';
-
+import { Alert, AlertFields } from './domain/alerts.entity';
+import { ALERT_EVENTS } from './alerts.constants';
+import { PinoLogger } from 'nestjs-pino';
+import { DevicesService } from '../devices/devices.service';
 @Injectable()
 export class AlertsService {
-  constructor(private readonly alertsRepository: AlertsRepository) {}
+  constructor(
+    private readonly alertsRepository: AlertsRepository,
+    private readonly logger: PinoLogger,
+    private readonly diviceService: DevicesService,
+  ) {}
 
-  async createAlert(alert: Alert): Promise<void> {
-    await this.alertsRepository.save(alert);
+  // *** CREATE ALERT - REALTIME INFERENCE ***
+  async createAlert(alert: AlertFields): Promise<Alert> {
+    const newAlert = Alert.create(alert);
+    await this.alertsRepository.save(newAlert);
+
+    this.logger.info(
+      { event: ALERT_EVENTS.ALERT_CREATED },
+      `Alert created: ${JSON.stringify(newAlert)}`,
+    );
+
+    return newAlert;
+  }
+
+  // *** GET ALERTS BY ASSIGNED USER ID - USER ***
+  async getAlertsByAssignedUserId(assignedUserId: string): Promise<Alert[]> {
+    const deviceIds = await this.diviceService.findDeviceIdsByAssignedUser(assignedUserId);
+
+    const alerts = await this.alertsRepository.findNonFalseAlarmsByDeviceId(deviceIds);
+    return alerts;
   }
 }
