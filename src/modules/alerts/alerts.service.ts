@@ -3,13 +3,16 @@ import { AlertsRepository } from './infrastructure/alerts.repository';
 import { Alert, AlertFields } from './domain/alerts.entity';
 import { ALERT_EVENTS } from './alerts.constants';
 import { PinoLogger } from 'nestjs-pino';
+import { DevicesService } from '../devices/devices.service';
 @Injectable()
 export class AlertsService {
   constructor(
     private readonly alertsRepository: AlertsRepository,
     private readonly logger: PinoLogger,
+    private readonly diviceService: DevicesService,
   ) {}
 
+  // *** CREATE ALERT - REALTIME INFERENCE ***
   async createAlert(alert: AlertFields): Promise<Alert> {
     const newAlert = Alert.create(alert);
     await this.alertsRepository.save(newAlert);
@@ -20,5 +23,13 @@ export class AlertsService {
     );
 
     return newAlert;
+  }
+
+  // *** GET ALERTS BY ASSIGNED USER ID - USER ***
+  async getAlertsByAssignedUserId(assignedUserId: string): Promise<Alert[]> {
+    const deviceIds = await this.diviceService.findDeviceIdsByAssignedUser(assignedUserId);
+
+    const alerts = await this.alertsRepository.findNonFalseAlarmsByDeviceId(deviceIds);
+    return alerts;
   }
 }
