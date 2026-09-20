@@ -15,7 +15,10 @@ export class AlertsMapper {
     };
   }
 
-  static toDomain(alertsFields: AlertFields): Alert {
-    return Alert.create(alertsFields);
+  static toDomain(alertId: string, alertsFields: AlertFields): Alert {
+    return Alert.create({
+      ...alertsFields,
+      alertId,
+    });
   }
 }
