@@ -46,4 +46,13 @@ export class DeviceRepository {
 
     return device.assignedUserId ?? null;
   }
+
+  async findDeviceIdsByAssignedUser(assignedUserId: string): Promise<string[]> {
+    const querySnapshot = await this.firestoreClient
+      .collection(DEVICES_COLLECTION)
+      .where('assignedUserId', '==', assignedUserId)
+      .get();
+
+    return querySnapshot.docs.map((doc) => doc.id);
+  }
 }

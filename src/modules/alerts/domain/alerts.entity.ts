@@ -9,6 +9,7 @@ export class Alert {
     const trimmedMessage = trimmed(message, 'message');
 
     return new Alert({
+      alertId: alertFields.alertId,
       deviceId: deviceId,
       message: trimmedMessage,
       imageUrl: imageUrl,
@@ -42,6 +43,7 @@ export class Alert {
 }
 
 export type AlertFields = {
+  alertId?: string;
   deviceId: string;
   message: string;
   imageUrl?: string | null | undefined;
