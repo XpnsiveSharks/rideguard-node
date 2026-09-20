@@ -4,7 +4,7 @@ import { AlertFields } from '@/modules/alerts/domain/alerts.entity';
 import { DeviceId } from '@/modules/devices/domain/device-id.value-object';
 import { AlertsService } from '@/modules/alerts/alerts.service';
 import { RealtimePublisherService } from './realtime-publishing.service';
-import { REALTIME_CHANNELS } from './realtime.constants';
+import { REALTIME_CHANNELS } from '../realtime.constants';
 import { DevicesService } from '@/modules/devices/devices.service';
 @Injectable()
 export class InferenceHandlingService {
