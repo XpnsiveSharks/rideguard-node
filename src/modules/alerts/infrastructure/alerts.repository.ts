@@ -54,7 +54,7 @@ export class AlertsRepository {
     };
   }
 
-  async updateIsSeen(alertId: string, deviceIds: string[], isSeen: boolean): Promise<void> {
+  async updateIsSeen(alertId: string, deviceIds: string[], isSeen: boolean): Promise<Alert> {
     const alertDocument = this.firestoreClient.collection(ALERTS_COLLECTION).doc(alertId);
     const alertSnapshot = await alertDocument.get();
     const alertData = alertSnapshot.data() as AlertFields | undefined;
@@ -64,13 +64,15 @@ export class AlertsRepository {
     }
 
     await alertDocument.update({ isSeen });
+
+    return AlertsMapper.toDomain(alertId, { ...alertData, isSeen });
   }
 
   async updateIsFalseAlarm(
     alertId: string,
     deviceIds: string[],
     isFalseAlarm: boolean,
-  ): Promise<void> {
+  ): Promise<Alert> {
     const alertDocument = this.firestoreClient.collection(ALERTS_COLLECTION).doc(alertId);
     const alertSnapshot = await alertDocument.get();
     const alertData = alertSnapshot.data() as AlertFields | undefined;
@@ -80,5 +82,7 @@ export class AlertsRepository {
     }
 
     await alertDocument.update({ isFalseAlarm });
+
+    return AlertsMapper.toDomain(alertId, { ...alertData, isFalseAlarm });
   }
 }

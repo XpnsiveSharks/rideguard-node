@@ -9,6 +9,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { AlertsService } from './alerts.service';
+import { Alert } from './domain/alerts.entity';
 import type { Request } from 'express';
 import { GetAlertsQueryDto, UpdateAlertFalseAlarmDto, UpdateAlertSeenDto } from './alerts.dto';
 
@@ -38,13 +39,13 @@ export class AlertsController {
     @Param('alertId') alertId: string,
     @Body() body: UpdateAlertSeenDto,
     @Req() req: Request,
-  ): Promise<void> {
+  ): Promise<Alert> {
     const assignedUserId = req.user?.uid;
     if (!assignedUserId) {
       throw new UnauthorizedException('User ID is missing or invalid.');
     }
 
-    await this.alertsService.updateAlertSeen(alertId, assignedUserId, body.isSeen);
+    return await this.alertsService.updateAlertSeen(alertId, assignedUserId, body.isSeen);
   }
 
   // USER ROUTE
@@ -54,12 +55,16 @@ export class AlertsController {
     @Param('alertId') alertId: string,
     @Body() body: UpdateAlertFalseAlarmDto,
     @Req() req: Request,
-  ): Promise<void> {
+  ): Promise<Alert> {
     const assignedUserId = req.user?.uid;
     if (!assignedUserId) {
       throw new UnauthorizedException('User ID is missing or invalid.');
     }
 
-    await this.alertsService.updateAlertFalseAlarm(alertId, assignedUserId, body.isFalseAlarm);
+    return await this.alertsService.updateAlertFalseAlarm(
+      alertId,
+      assignedUserId,
+      body.isFalseAlarm,
+    );
   }
 }

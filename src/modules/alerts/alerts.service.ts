@@ -37,10 +37,10 @@ export class AlertsService {
   }
 
   // *** UPDATE ALERT SEEN STATUS - USER ***
-  async updateAlertSeen(alertId: string, assignedUserId: string, isSeen: boolean): Promise<void> {
+  async updateAlertSeen(alertId: string, assignedUserId: string, isSeen: boolean): Promise<Alert> {
     const deviceIds = await this.diviceService.findDeviceIdsByAssignedUser(assignedUserId);
 
-    await this.alertsRepository.updateIsSeen(alertId, deviceIds, isSeen);
+    return await this.alertsRepository.updateIsSeen(alertId, deviceIds, isSeen);
   }
 
   // *** UPDATE ALERT FALSE ALARM STATUS - USER ***
@@ -48,9 +48,9 @@ export class AlertsService {
     alertId: string,
     assignedUserId: string,
     isFalseAlarm: boolean,
-  ): Promise<void> {
+  ): Promise<Alert> {
     const deviceIds = await this.diviceService.findDeviceIdsByAssignedUser(assignedUserId);
 
-    await this.alertsRepository.updateIsFalseAlarm(alertId, deviceIds, isFalseAlarm);
+    return await this.alertsRepository.updateIsFalseAlarm(alertId, deviceIds, isFalseAlarm);
   }
 }
