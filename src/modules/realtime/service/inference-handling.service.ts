@@ -6,12 +6,14 @@ import { AlertsService } from '@/modules/alerts/alerts.service';
 import { RealtimePublisherService } from './realtime-publishing.service';
 import { REALTIME_CHANNELS } from '../realtime.constants';
 import { DevicesService } from '@/modules/devices/devices.service';
+import { PinoLogger } from 'nestjs-pino';
 @Injectable()
 export class InferenceHandlingService {
   constructor(
     private readonly alertsService: AlertsService,
     private readonly realtimePublisherService: RealtimePublisherService,
     private readonly deviceService: DevicesService,
+    private readonly logger: PinoLogger,
   ) {}
 
   async handleResult(result: InferenceResult): Promise<void> {
@@ -39,7 +41,7 @@ export class InferenceHandlingService {
     const hasWeapon = detections.objects.length > 0;
     const hasFreshViolence = violence?.label === 'violent' && violence?.inference_ran === true;
     const alertMessage = this.buildAlertMessage(hasWeapon, hasFreshViolence);
-
+    this.logger.info(detections.objects, 'Detected objects');
     return {
       deviceId: deviceId,
       message: alertMessage,

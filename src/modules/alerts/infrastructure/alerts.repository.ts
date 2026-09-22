@@ -1,6 +1,6 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { BadRequestException, Injectable, Inject } from '@nestjs/common';
 import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
-import { Firestore } from 'firebase-admin/firestore';
+import { FieldPath, Firestore } from 'firebase-admin/firestore';
 import { Alert, AlertFields } from '../domain/alerts.entity';
 import { ALERTS_COLLECTION, AlertsMapper } from './alerts.mapper';
 
@@ -12,18 +12,45 @@ export class AlertsRepository {
     await this.firestoreClient.collection(ALERTS_COLLECTION).add(AlertsMapper.toPersistence(alert));
   }
 
-  async findNonFalseAlarmsByDeviceId(deviceIds: string[]): Promise<Alert[]> {
+  async findNonFalseAlarmsByDeviceId(
+    deviceIds: string[],
+    limit: number,
+    cursor?: string,
+  ): Promise<{ data: Alert[]; nextCursor: string | null }> {
     if (deviceIds.length === 0) {
-      return [];
+      return { data: [], nextCursor: null };
     }
-    const querySnapshot = await this.firestoreClient
-      .collection(ALERTS_COLLECTION)
+
+    const alertsCollection = this.firestoreClient.collection(ALERTS_COLLECTION);
+    let query = alertsCollection
       .where('deviceId', 'in', deviceIds)
       .where('isFalseAlarm', '==', false)
-      .get();
+      .orderBy('timeStamp', 'desc')
+      .orderBy(FieldPath.documentId(), 'desc');
 
-    return querySnapshot.docs.map((doc) =>
-      AlertsMapper.toDomain(doc.id, doc.data() as AlertFields),
-    );
+    if (cursor) {
+      const cursorDocument = await alertsCollection.doc(cursor).get();
+      const cursorData = cursorDocument.data() as AlertFields | undefined;
+
+      if (
+        !cursorDocument.exists ||
+        !cursorData ||
+        cursorData.isFalseAlarm !== false ||
+        !deviceIds.includes(cursorData.deviceId)
+      ) {
+        throw new BadRequestException('The alert cursor is invalid.');
+      }
+
+      query = query.startAfter(cursorDocument);
+    }
+
+    const querySnapshot = await query.limit(limit + 1).get();
+    const hasMore = querySnapshot.docs.length > limit;
+    const pageDocuments = querySnapshot.docs.slice(0, limit);
+
+    return {
+      data: pageDocuments.map((doc) => AlertsMapper.toDomain(doc.id, doc.data() as AlertFields)),
+      nextCursor: hasMore ? (pageDocuments.at(-1)?.id ?? null) : null,
+    };
   }
 }
