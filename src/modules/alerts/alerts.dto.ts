@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -8,6 +9,11 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+
+export class UpdateAlertSeenDto {
+  @IsBoolean()
+  isSeen!: boolean;
+}
 
 export class GetAlertsQueryDto {
   @IsOptional()

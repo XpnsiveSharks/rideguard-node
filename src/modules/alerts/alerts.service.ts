@@ -35,4 +35,11 @@ export class AlertsService {
 
     return await this.alertsRepository.findNonFalseAlarmsByDeviceId(deviceIds, limit, cursor);
   }
+
+  // *** UPDATE ALERT SEEN STATUS - USER ***
+  async updateAlertSeen(alertId: string, assignedUserId: string, isSeen: boolean): Promise<void> {
+    const deviceIds = await this.diviceService.findDeviceIdsByAssignedUser(assignedUserId);
+
+    await this.alertsRepository.updateIsSeen(alertId, deviceIds, isSeen);
+  }
 }
