@@ -35,4 +35,22 @@ export class AlertsService {
 
     return await this.alertsRepository.findNonFalseAlarmsByDeviceId(deviceIds, limit, cursor);
   }
+
+  // *** UPDATE ALERT SEEN STATUS - USER ***
+  async updateAlertSeen(alertId: string, assignedUserId: string, isSeen: boolean): Promise<Alert> {
+    const deviceIds = await this.diviceService.findDeviceIdsByAssignedUser(assignedUserId);
+
+    return await this.alertsRepository.updateIsSeen(alertId, deviceIds, isSeen);
+  }
+
+  // *** UPDATE ALERT FALSE ALARM STATUS - USER ***
+  async updateAlertFalseAlarm(
+    alertId: string,
+    assignedUserId: string,
+    isFalseAlarm: boolean,
+  ): Promise<Alert> {
+    const deviceIds = await this.diviceService.findDeviceIdsByAssignedUser(assignedUserId);
+
+    return await this.alertsRepository.updateIsFalseAlarm(alertId, deviceIds, isFalseAlarm);
+  }
 }

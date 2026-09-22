@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Inject } from '@nestjs/common';
+import { BadRequestException, Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
 import { FieldPath, Firestore } from 'firebase-admin/firestore';
 import { Alert, AlertFields } from '../domain/alerts.entity';
@@ -52,5 +52,37 @@ export class AlertsRepository {
       data: pageDocuments.map((doc) => AlertsMapper.toDomain(doc.id, doc.data() as AlertFields)),
       nextCursor: hasMore ? (pageDocuments.at(-1)?.id ?? null) : null,
     };
+  }
+
+  async updateIsSeen(alertId: string, deviceIds: string[], isSeen: boolean): Promise<Alert> {
+    const alertDocument = this.firestoreClient.collection(ALERTS_COLLECTION).doc(alertId);
+    const alertSnapshot = await alertDocument.get();
+    const alertData = alertSnapshot.data() as AlertFields | undefined;
+
+    if (!alertSnapshot.exists || !alertData || !deviceIds.includes(alertData.deviceId)) {
+      throw new NotFoundException('Alert not found.');
+    }
+
+    await alertDocument.update({ isSeen });
+
+    return AlertsMapper.toDomain(alertId, { ...alertData, isSeen });
+  }
+
+  async updateIsFalseAlarm(
+    alertId: string,
+    deviceIds: string[],
+    isFalseAlarm: boolean,
+  ): Promise<Alert> {
+    const alertDocument = this.firestoreClient.collection(ALERTS_COLLECTION).doc(alertId);
+    const alertSnapshot = await alertDocument.get();
+    const alertData = alertSnapshot.data() as AlertFields | undefined;
+
+    if (!alertSnapshot.exists || !alertData || !deviceIds.includes(alertData.deviceId)) {
+      throw new NotFoundException('Alert not found.');
+    }
+
+    await alertDocument.update({ isFalseAlarm });
+
+    return AlertsMapper.toDomain(alertId, { ...alertData, isFalseAlarm });
   }
 }
