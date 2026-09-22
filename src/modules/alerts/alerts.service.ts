@@ -42,4 +42,15 @@ export class AlertsService {
 
     await this.alertsRepository.updateIsSeen(alertId, deviceIds, isSeen);
   }
+
+  // *** UPDATE ALERT FALSE ALARM STATUS - USER ***
+  async updateAlertFalseAlarm(
+    alertId: string,
+    assignedUserId: string,
+    isFalseAlarm: boolean,
+  ): Promise<void> {
+    const deviceIds = await this.diviceService.findDeviceIdsByAssignedUser(assignedUserId);
+
+    await this.alertsRepository.updateIsFalseAlarm(alertId, deviceIds, isFalseAlarm);
+  }
 }

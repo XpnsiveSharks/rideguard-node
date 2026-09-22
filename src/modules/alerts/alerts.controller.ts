@@ -10,7 +10,7 @@ import {
 } from '@nestjs/common';
 import { AlertsService } from './alerts.service';
 import type { Request } from 'express';
-import { GetAlertsQueryDto, UpdateAlertSeenDto } from './alerts.dto';
+import { GetAlertsQueryDto, UpdateAlertFalseAlarmDto, UpdateAlertSeenDto } from './alerts.dto';
 
 @Controller('alerts')
 export class AlertsController {
@@ -45,5 +45,21 @@ export class AlertsController {
     }
 
     await this.alertsService.updateAlertSeen(alertId, assignedUserId, body.isSeen);
+  }
+
+  // USER ROUTE
+  // route: PATCH /alerts/:alertId/false-alarm
+  @Patch(':alertId/false-alarm')
+  async updateAlertFalseAlarm(
+    @Param('alertId') alertId: string,
+    @Body() body: UpdateAlertFalseAlarmDto,
+    @Req() req: Request,
+  ): Promise<void> {
+    const assignedUserId = req.user?.uid;
+    if (!assignedUserId) {
+      throw new UnauthorizedException('User ID is missing or invalid.');
+    }
+
+    await this.alertsService.updateAlertFalseAlarm(alertId, assignedUserId, body.isFalseAlarm);
   }
 }

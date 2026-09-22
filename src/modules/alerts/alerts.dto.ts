@@ -15,6 +15,11 @@ export class UpdateAlertSeenDto {
   isSeen!: boolean;
 }
 
+export class UpdateAlertFalseAlarmDto {
+  @IsBoolean()
+  isFalseAlarm!: boolean;
+}
+
 export class GetAlertsQueryDto {
   @IsOptional()
   @IsInt()

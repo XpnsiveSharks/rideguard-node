@@ -65,4 +65,20 @@ export class AlertsRepository {
 
     await alertDocument.update({ isSeen });
   }
+
+  async updateIsFalseAlarm(
+    alertId: string,
+    deviceIds: string[],
+    isFalseAlarm: boolean,
+  ): Promise<void> {
+    const alertDocument = this.firestoreClient.collection(ALERTS_COLLECTION).doc(alertId);
+    const alertSnapshot = await alertDocument.get();
+    const alertData = alertSnapshot.data() as AlertFields | undefined;
+
+    if (!alertSnapshot.exists || !alertData || !deviceIds.includes(alertData.deviceId)) {
+      throw new NotFoundException('Alert not found.');
+    }
+
+    await alertDocument.update({ isFalseAlarm });
+  }
 }
