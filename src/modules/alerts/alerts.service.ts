@@ -26,10 +26,13 @@ export class AlertsService {
   }
 
   // *** GET ALERTS BY ASSIGNED USER ID - USER ***
-  async getAlertsByAssignedUserId(assignedUserId: string): Promise<Alert[]> {
+  async getAlertsByAssignedUserId(
+    assignedUserId: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<{ data: Alert[]; nextCursor: string | null }> {
     const deviceIds = await this.diviceService.findDeviceIdsByAssignedUser(assignedUserId);
 
-    const alerts = await this.alertsRepository.findNonFalseAlarmsByDeviceId(deviceIds);
-    return alerts;
+    return await this.alertsRepository.findNonFalseAlarmsByDeviceId(deviceIds, limit, cursor);
   }
 }
