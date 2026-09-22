@@ -12,8 +12,7 @@ export class AlertsController {
   @Public()
   @Get()
   async getAlertsByAssignedUserId(@Req() req: Request) {
-    const assignedUserId = 'CyzbiM3ld2eomEfaudjLy4vklBd2';
-    // const assignedUserId = req.user?.uid;
+    const assignedUserId = req.user?.uid;
     if (!assignedUserId) {
       throw new Error('User ID is missing or invalid.');
     }
