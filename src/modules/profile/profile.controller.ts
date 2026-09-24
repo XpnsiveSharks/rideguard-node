@@ -23,7 +23,8 @@ export class ProfileController {
         profileImageUrl: req.user?.picture,
       },
       vehicleInfoFields: {
-        vehicleName: body.vehicle,
+        brand: body.brand,
+        model: body.model,
         plateNumber: body.plate_number,
         color: body.color,
       },

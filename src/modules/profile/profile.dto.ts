@@ -25,11 +25,14 @@ export class CreateProfileDto extends CreateEmergencyContactDto {
   phone_number!: string;
 
   @IsString()
-  vehicle!: string;
+  brand!: string;
+
+  @IsString()
+  model!: string;
 
   @IsString()
   plate_number!: string;
 
   @IsString()
-  color?: string;
+  color!: string;
 }
