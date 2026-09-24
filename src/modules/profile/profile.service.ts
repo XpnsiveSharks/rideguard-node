@@ -10,13 +10,19 @@ import { CreateProfileInput } from './profile.types';
 export class ProfileService {
   constructor(private readonly profileRepository: ProfileRepository) {}
 
-  // Creates a new profile for the user
+  // *** CREATES A NEW PROFILE ***
   async createProfile(input: CreateProfileInput): Promise<void> {
     const personalInfo = PersonalInfo.create(input.personalInfoFields);
 
     const vehicle = Vehicle.create(input.vehicleInfoFields);
 
     const emergencyContact = EmergencyContact.create(input.emergencyContactFields);
+
+    const alreadyExists = await this.profileRepository.findProfileByUid(input.uid as string);
+
+    if (alreadyExists) {
+      throw new UnprocessableEntityException('User already exists');
+    }
 
     const profile = Profile.create({
       uid: input.uid,
@@ -28,7 +34,7 @@ export class ProfileService {
     await this.profileRepository.saveProfile(profile);
   }
 
-  // creates a new emergency contact
+  // *** CREATES A NEW EMERGENCY CONTACT ***
   async createEmergencyContact(
     uid: string | undefined,
     emergencyContactInput: EmergencyContactFields,
@@ -44,7 +50,7 @@ export class ProfileService {
     await this.profileRepository.saveContactInfo(uid, emergencyContact);
   }
 
-  // Checks if a profile exists for the given UID
+  // *** CHECKS IF A PROFILE EXISTS FOR THE GIVEN UID ***
   async findProfileByUid(uid: string): Promise<boolean> {
     const IsEmptyProfileUid = Profile.isEmpty(uid);
     if (IsEmptyProfileUid) {
