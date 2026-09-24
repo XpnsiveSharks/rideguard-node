@@ -4,9 +4,19 @@ export class Vehicle {
   private constructor(public vehicleInfoFields: VehicleInfoFields) {}
 
   static create(vehicleInfo: VehicleInfoFields): Vehicle {
-    const trimmedVehicle = vehicleInfo.vehicleName.trim();
-    if (!trimmedVehicle) {
-      throw new BadRequestException('Vehicle is required');
+    const trimmedBrand = vehicleInfo.brand.trim();
+    if (!trimmedBrand) {
+      throw new BadRequestException('Brand is required');
+    }
+
+    const trimmedModel = vehicleInfo.model.trim();
+    if (!trimmedModel) {
+      throw new BadRequestException('Model is required');
+    }
+
+    const trimmedColor = vehicleInfo.color?.trim();
+    if (!trimmedColor) {
+      throw new BadRequestException('Color is required');
     }
 
     const trimmedPlateNumber = vehicleInfo.plateNumber.trim();
@@ -15,15 +25,17 @@ export class Vehicle {
     }
 
     return new Vehicle({
-      vehicleName: vehicleInfo.vehicleName,
-      plateNumber: vehicleInfo.plateNumber,
-      color: !vehicleInfo.color ? 'not set' : vehicleInfo.color,
+      brand: trimmedBrand,
+      model: trimmedModel,
+      plateNumber: trimmedPlateNumber,
+      color: trimmedColor,
     });
   }
 }
 
 export type VehicleInfoFields = {
-  vehicleName: string;
+  brand: string;
+  model: string;
   plateNumber: string;
-  color?: string;
+  color: string;
 };
