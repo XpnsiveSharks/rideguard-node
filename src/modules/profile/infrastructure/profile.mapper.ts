@@ -15,7 +15,8 @@ export class ProfileMapper {
         profileImageUrl: personalInfo.profileImageUrl,
       },
       vehicle: {
-        model: vehicle.vehicleName,
+        brand: vehicle.brand,
+        model: vehicle.model,
         plateNumber: vehicle.plateNumber,
         color: vehicle.color,
       },
