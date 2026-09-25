@@ -65,7 +65,7 @@ export class Device {
 
 export enum DeviceType {
   CAMERA = 'Camera',
-  METAL_DETECTOR = 'Metal-Detector',
+  BUTTON = 'Button',
 }
 
 export enum DeviceStatus {
