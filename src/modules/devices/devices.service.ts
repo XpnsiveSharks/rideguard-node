@@ -3,7 +3,7 @@ import { Device, DeviceInfo, DeviceStatus } from './domain/device.entity';
 import { DeviceRepository } from './infrastructure/devices.repository';
 import { DeviceId } from './domain/device-id.value-object';
 import { PinoLogger } from 'nestjs-pino';
-import { DEVICE_EVENTS } from './device.constants';
+import { DEVICE_EVENTS, DEVICE_MESSAGES } from './device.constants';
 
 @Injectable()
 export class DevicesService {
@@ -28,7 +28,7 @@ export class DevicesService {
       await this.deviceRepository.saveDevice(device);
       this.logger.info(
         { event: DEVICE_EVENTS.DEVICE_CREATED },
-        `Device registered with ID: ${generateDeviceId}`,
+        DEVICE_MESSAGES.DEVICE_CREATED_MESSAGE(generateDeviceId),
       );
     }
   }
@@ -54,7 +54,7 @@ export class DevicesService {
     });
     this.logger.info(
       { event: DEVICE_EVENTS.DEVICE_ASSIGNED },
-      `Device assigned to user: ${assignedUserId}`,
+      DEVICE_MESSAGES.DEVICE_ASSIGNED_MESSAGE(assignedUserId),
     );
   }
 
@@ -70,7 +70,10 @@ export class DevicesService {
       status: updatedDevice.getStatus(),
     });
 
-    this.logger.info({ event: DEVICE_EVENTS.DEVICE_ACTIVATED }, `Device activated: ${deviceId}`);
+    this.logger.info(
+      { event: DEVICE_EVENTS.DEVICE_ACTIVATED },
+      DEVICE_MESSAGES.DEVICE_ACTIVATED_MESSAGE(deviceId),
+    );
   }
 
   // *** GET ASSIGNED USER ID BY DEVICE ID - USER ***
