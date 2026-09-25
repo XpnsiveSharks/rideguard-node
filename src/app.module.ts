@@ -17,6 +17,7 @@ import { AppValidationPipe } from './common/pipes/app-validation.pipe';
 import { DevicesModule } from './modules/devices/devices.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { AlertsModule } from './modules/alerts/alerts.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { AlertsModule } from './modules/alerts/alerts.module';
     DevicesModule,
     RealtimeModule,
     AlertsModule,
+    NotificationsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
