@@ -1,7 +1,7 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { Firestore } from 'firebase-admin/firestore';
 import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
-import { Device, DeviceFields } from '../domain/device.entity';
+import { Device, DeviceFields, DeviceStatus } from '../domain/device.entity';
 import { DeviceMapper, DEVICES_COLLECTION } from './devices.mapper';
 import { FieldValue } from 'firebase-admin/firestore';
 
@@ -36,6 +36,29 @@ export class DeviceRepository {
       });
 
       return updatedDevice;
+    });
+  }
+
+  async activate(deviceId: string): Promise<Device> {
+    const reference = this.firestore.collection(DEVICES_COLLECTION).doc(deviceId);
+
+    return this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+
+      if (!snapshot.exists) {
+        throw new NotFoundException(`Incorrect device ID: ${deviceId}`);
+      }
+
+      const device = DeviceMapper.toDomain(snapshot.data() as DeviceFields);
+
+      const activatedDevice = device.updateStatus(DeviceStatus.PROVISIONED);
+
+      transaction.update(reference, {
+        status: activatedDevice.getStatus(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return activatedDevice;
     });
   }
 

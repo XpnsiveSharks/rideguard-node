@@ -15,10 +15,8 @@ export class DevicesController {
   registerDevice(
     @Body()
     body: DeviceRegistrationDto,
-  ) {
-    return this.devicesService.registerDevice({
-      deviceType: body.device_type,
-    });
+  ): Promise<string> {
+    return this.devicesService.registerDevice(body.device_type);
   }
 
   // MOBILE ROUTE

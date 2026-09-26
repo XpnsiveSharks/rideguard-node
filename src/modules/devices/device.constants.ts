@@ -1,3 +1,5 @@
+export const MAX_DEVICE_ID_GENERATION_ATTEMPTS = 5;
+
 export const DEVICE_EVENTS = {
   DEVICE_CREATED: 'device.created',
   DEVICE_ASSIGNED: 'device.assigned',
