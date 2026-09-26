@@ -1,5 +1,6 @@
-import { IsEnum, IsNotEmpty, IsString } from 'class-validator';
-import { PushPlatform } from './domain/push-registration.entity';
+import { IsNotEmpty, IsString } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { StringTransformParams } from '@/common/types/transformer.types';
 
 export class RegisterPushNotificationDto {
   @IsString({ message: 'Installation ID must be a string' })
@@ -11,9 +12,9 @@ export class RegisterPushNotificationDto {
   registrationId!: string;
 
   @IsString({ message: 'Platform must be a string' })
-  @IsEnum(PushPlatform, { message: 'Platform must be either "ANDROID", "IOS" or "WEB' })
+  @Transform(({ value }: StringTransformParams) => value.toLowerCase())
   @IsNotEmpty()
-  platform!: PushPlatform;
+  platform!: string;
 
   @IsString({ message: 'Device name must be a string' })
   deviceName?: string;

@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import { Device, DeviceInfo, DeviceStatus } from './domain/device.entity';
+import { Device, DeviceFields, DeviceStatus } from './domain/device.entity';
 import { DeviceRepository } from './infrastructure/devices.repository';
 import { DeviceId } from './domain/device-id.value-object';
 import { PinoLogger } from 'nestjs-pino';
@@ -13,11 +13,8 @@ export class DevicesService {
   ) {}
 
   // *** REGISTER NEW HARDWARE DEVICE - ADMIN ***
-  async registerDevice(input: DeviceInfo): Promise<void> {
-    const device = Device.create({
-      deviceType: input.deviceType,
-      status: DeviceStatus.STANDBY,
-    });
+  async registerDevice(input: DeviceFields): Promise<void> {
+    const device = Device.create(input);
     const generateDeviceId = device.getDeviceId();
 
     // This checks first if our generated device ID already exists in the database.
@@ -37,24 +34,20 @@ export class DevicesService {
   async assignDeviceToUser(deviceId: string, assignedUserId: string | undefined): Promise<void> {
     DeviceId.isEmpty(deviceId);
 
-    if (!assignedUserId) {
+    const userId = assignedUserId?.trim();
+
+    if (!userId) {
       throw new UnprocessableEntityException(
         'We could not verify your account. Please log in again.',
       );
     }
 
-    const device = await this.deviceRepository.findDeviceById(deviceId);
-    if (!device) {
-      throw new NotFoundException(`Incorrect device ID: ${deviceId}`);
-    }
+    const updatedDevice = await this.deviceRepository.assignToUser(deviceId, userId);
+    await this.deviceRepository.assignToUser(deviceId, userId);
 
-    const updatedDevice = Device.AssignDeviceToUser(device, assignedUserId);
-    await this.deviceRepository.updateDevice(deviceId, {
-      assignedUserId: updatedDevice.getAssignedUserId(),
-    });
     this.logger.info(
       { event: DEVICE_EVENTS.DEVICE_ASSIGNED },
-      DEVICE_MESSAGES.DEVICE_ASSIGNED_MESSAGE(assignedUserId),
+      DEVICE_MESSAGES.DEVICE_ASSIGNED_MESSAGE(updatedDevice.getDeviceId()),
     );
   }
 

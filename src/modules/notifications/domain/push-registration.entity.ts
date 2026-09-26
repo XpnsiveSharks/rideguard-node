@@ -11,7 +11,7 @@ export type PushRegistrationFields = {
   userId: string;
   installationId: string;
   registrationId: string;
-  platform: PushPlatform;
+  platform: string;
   deviceName?: string;
   createdAt?: Date;
   updatedAt?: Date;
@@ -23,6 +23,7 @@ export class PushRegistration {
   static create(fields: PushRegistrationFields): PushRegistration {
     const installationId = fields.installationId.trim();
     const registrationId = fields.registrationId.trim();
+    const parsedPlatformField = parseEnumValue(fields.platform, PushPlatform, 'push platform');
     const userId = fields.userId.trim();
 
     if (!userId) {
@@ -37,16 +38,11 @@ export class PushRegistration {
       throw new BadRequestException('Registration id is required');
     }
 
-    const platform = parseEnumValue(fields.platform, PushPlatform, 'push platform');
-    if (!platform) {
-      throw new BadRequestException(`platform is required and must be either "android" or "ios"`);
-    }
-
     return new PushRegistration({
       userId,
       installationId,
       registrationId,
-      platform: fields.platform,
+      platform: parsedPlatformField,
       deviceName: fields.deviceName?.trim() || undefined,
       createdAt: fields.createdAt,
       updatedAt: fields.updatedAt,
@@ -71,7 +67,7 @@ export class PushRegistration {
     return this.fields.registrationId;
   }
 
-  getPlatform(): PushPlatform {
+  getPlatform(): string {
     return this.fields.platform;
   }
 
