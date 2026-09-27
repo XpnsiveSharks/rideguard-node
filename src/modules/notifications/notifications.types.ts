@@ -25,6 +25,19 @@ export type SendPushResult = {
   usersWithoutRegistrationsCount: number;
 };
 
+// Result of trying to deliver to a single FCM token. The adapter reports one of
+// these per token; the service counts failures and, when `isInvalidToken` is
+// true, removes the matching push registration.
+export type FcmSendOutcome = {
+  token: string;
+  success: boolean;
+  // True only when FCM says the token is permanently invalid, so it is safe to
+  // delete its registration. Transient failures leave this false.
+  isInvalidToken: boolean;
+  // FCM error code when the send failed, kept for logging. Never a token/secret.
+  errorCode?: string;
+};
+
 // The three possible results when we try to delete a registration:
 //   'deleted'   – it existed and was removed
 //   'missing'   – it wasn't there to begin with
