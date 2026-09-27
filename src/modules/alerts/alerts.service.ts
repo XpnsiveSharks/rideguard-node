@@ -30,7 +30,7 @@ export class AlertsService {
       `Alert created: ${JSON.stringify(savedAlert)}`,
     );
 
-    // Push delivery is best-effort and runs after the alert is safely stored.
+    // Push delivery
     await this.sendAlertPush(savedAlert, savedAlertId);
 
     return savedAlert;

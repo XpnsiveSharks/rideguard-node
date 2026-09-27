@@ -108,4 +108,8 @@ export class DevicesService {
 
     return await this.deviceRepository.findAssignedUserIdByDeviceId(deviceId);
   }
+
+  handleButtonEvent(deviceId: string, buttonEvent: string) {
+    this.logger.info(`Received button event from device ${deviceId}: ${buttonEvent}`);
+  }
 }
