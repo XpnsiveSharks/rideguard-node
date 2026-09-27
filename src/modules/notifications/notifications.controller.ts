@@ -1,4 +1,4 @@
-import { Controller, Body, Post, Req } from '@nestjs/common';
+import { Controller, Body, Post, Req, HttpCode, HttpStatus } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import { RegisterPushNotificationDto } from './notifications.dto';
 import type { Request } from 'express';
@@ -8,6 +8,7 @@ export class NotificationsController {
 
   // route: POST /notifications/register
   @Post('register')
+  @HttpCode(HttpStatus.NO_CONTENT)
   async registerPushNotification(
     @Req() req: Request,
     @Body() body: RegisterPushNotificationDto,

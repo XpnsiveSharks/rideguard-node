@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { StringTransformParams } from '@/common/types/transformer.types';
 
@@ -12,10 +12,13 @@ export class RegisterPushNotificationDto {
   registrationId!: string;
 
   @IsString({ message: 'Platform must be a string' })
-  @Transform(({ value }: StringTransformParams) => value.toLowerCase())
+  @Transform(({ value }: StringTransformParams) =>
+    typeof value === 'string' ? value.toLowerCase() : value,
+  )
   @IsNotEmpty()
   platform!: string;
 
+  @IsOptional()
   @IsString({ message: 'Device name must be a string' })
   deviceName?: string;
 }
