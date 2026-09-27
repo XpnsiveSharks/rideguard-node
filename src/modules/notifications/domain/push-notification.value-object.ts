@@ -103,13 +103,27 @@ export class PushNotification {
 
   // Copy the incoming object so later changes to the caller's object can't reach
   // us, then freeze the copy so our own instance stays immutable.
+  //
+  // The `Record<string, string>` type is only checked while coding — at runtime
+  // this data may come from JSON or another untrusted source, so a value could
+  // actually be a number, object, etc. FCM only carries string values, so we
+  // verify each one here and reject anything that is not a string.
   private static copyData(
     data: Record<string, string> | undefined,
   ): Record<string, string> | undefined {
     if (!data) {
       return undefined;
     }
-    return Object.freeze({ ...data });
+
+    const copy: Record<string, string> = {};
+    for (const [key, value] of Object.entries(data)) {
+      if (typeof value !== 'string') {
+        throw new PushNotificationValidationError(`Data value for "${key}" must be a string`);
+      }
+      copy[key] = value;
+    }
+
+    return Object.freeze(copy);
   }
 
   private static dataEquals(
