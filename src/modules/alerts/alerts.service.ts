@@ -15,14 +15,19 @@ export class AlertsService {
   // *** CREATE ALERT - REALTIME INFERENCE ***
   async createAlert(alert: AlertFields): Promise<Alert> {
     const newAlert = Alert.create(alert);
-    await this.alertsRepository.save(newAlert);
+    const savedAlertId = await this.alertsRepository.save(newAlert);
+
+    // Rebuild the alert with the real Firestore document ID. Notification and
+    // realtime payloads read alertId from here, and it must be the stored ID —
+    // never the optional incoming ID, which may differ from what Firestore saved.
+    const savedAlert = Alert.create({ ...newAlert.alertFields, alertId: savedAlertId });
 
     this.logger.info(
       { event: ALERT_EVENTS.ALERT_CREATED },
-      `Alert created: ${JSON.stringify(newAlert)}`,
+      `Alert created: ${JSON.stringify(savedAlert)}`,
     );
 
-    return newAlert;
+    return savedAlert;
   }
 
   // *** GET ALERTS BY ASSIGNED USER ID - USER ***
