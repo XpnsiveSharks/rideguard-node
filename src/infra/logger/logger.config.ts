@@ -12,6 +12,14 @@ export const createLoggerOptions = (
 
   return {
     pinoHttp: {
+      // Keep secrets out of the logs. Without this, logging a request would
+      // print the Authorization/Cookie headers, which contain login tokens.
+      // `redact` swaps those values for "[REDACTED]". Node stores header names
+      // in lower case, so we list them in lower case here.
+      redact: {
+        paths: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
+        censor: '[REDACTED]',
+      },
       transport: usePrettyLogs
         ? {
             target: 'pino-pretty',

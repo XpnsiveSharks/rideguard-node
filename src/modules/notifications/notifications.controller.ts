@@ -1,4 +1,4 @@
-import { Controller, Body, Post, Req, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Body, Post, Req, HttpCode, HttpStatus, Delete, Param } from '@nestjs/common';
 import { NotificationsService } from './notifications.service';
 import { RegisterPushNotificationDto } from './notifications.dto';
 import type { Request } from 'express';
@@ -19,6 +19,21 @@ export class NotificationsController {
       registrationId: body.registrationId,
       platform: body.platform,
       deviceName: body.deviceName,
+    });
+  }
+
+  // Removes this device's push registration so it stops getting alerts.
+  // The app calls this on logout. Full route:
+  // DELETE /notifications/registrations/:installationId
+  @Delete('registrations/:installationId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async unregisterPushNotification(
+    @Param('installationId') installationId: string,
+    @Req() request: Request,
+  ): Promise<void> {
+    await this.notificationsService.unregisterPushNotification({
+      userId: request.user?.uid,
+      installationId,
     });
   }
 }
