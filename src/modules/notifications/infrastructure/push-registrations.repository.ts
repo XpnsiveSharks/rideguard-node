@@ -54,6 +54,33 @@ export class PushRegistrationsRepository {
     return chunks;
   }
 
+  // Deletes a registration only if its stored token still matches `registrationId`.
+  // FCM told us this token is invalid, but between the send and now the device
+  // may have refreshed its token (stored value differs). In that case we keep the
+  // registration so a now-valid token is not thrown away. The read-then-write runs
+  // in a transaction so a concurrent refresh cannot slip past the check.
+  // Returns true only when a document was actually deleted.
+  async deleteIfTokenMatches(installationId: string, registrationId: string): Promise<boolean> {
+    const reference = this.firestore.collection(PUSH_REGISTRATION_COLLECTION).doc(installationId);
+
+    return this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+
+      if (!snapshot.exists) {
+        return false;
+      }
+
+      const storedRegistrationId = (snapshot.data() as PushRegistrationFields).registrationId;
+
+      if (storedRegistrationId !== registrationId) {
+        return false;
+      }
+
+      transaction.delete(reference);
+      return true;
+    });
+  }
+
   async deleteOwnedRegistration(
     installationId: string,
     userId: string,
