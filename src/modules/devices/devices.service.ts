@@ -98,4 +98,14 @@ export class DevicesService {
   async findDeviceIdsByAssignedUser(assignedUserId: string): Promise<string[]> {
     return await this.deviceRepository.findDeviceIdsByAssignedUser(assignedUserId);
   }
+
+  // *** GET OWNER ID BY DEVICE ID (NON-THROWING) ***
+  // Returns the assigned user ID, or null when the device has no owner. Unlike
+  // findAssignedUserByDeviceId, this does not throw, so callers such as alert push
+  // delivery can simply skip when a device is unclaimed.
+  async findOwnerIdByDeviceId(deviceId: string): Promise<string | null> {
+    DeviceId.isEmpty(deviceId);
+
+    return await this.deviceRepository.findAssignedUserIdByDeviceId(deviceId);
+  }
 }
