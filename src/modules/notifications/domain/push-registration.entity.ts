@@ -1,5 +1,5 @@
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { parseEnumValue } from '@/common/helpers/enum-parser';
+import { PushRegistrationValidationError } from './push-registration.errors';
 
 export enum PushPlatform {
   ANDROID = 'android',
@@ -27,15 +27,15 @@ export class PushRegistration {
     const userId = fields.userId.trim();
 
     if (!userId) {
-      throw new BadRequestException('User ID is required');
+      throw new PushRegistrationValidationError('User ID is required');
     }
 
     if (!installationId) {
-      throw new BadRequestException('Installation ID is required');
+      throw new PushRegistrationValidationError('Installation ID is required');
     }
 
     if (!registrationId) {
-      throw new BadRequestException('Registration id is required');
+      throw new PushRegistrationValidationError('Registration id is required');
     }
 
     return new PushRegistration({
@@ -47,12 +47,6 @@ export class PushRegistration {
       createdAt: fields.createdAt,
       updatedAt: fields.updatedAt,
     });
-  }
-
-  static isUserIdEmpty(value: string | undefined): void {
-    if (value === null || value === undefined || value.trim() === '') {
-      throw new UnauthorizedException('Invalid authentication token');
-    }
   }
 
   getUserId(): string {
