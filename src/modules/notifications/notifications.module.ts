@@ -7,5 +7,8 @@ import { FcmPushAdapter } from './infrastructure/fcm-push.adapter';
 @Module({
   controllers: [NotificationsController],
   providers: [NotificationsService, PushRegistrationsRepository, FcmPushAdapter],
+  // Exported so other feature modules (e.g. alerts) can send push notifications
+  // through the service instead of reaching into this module's internals.
+  exports: [NotificationsService],
 })
 export class NotificationsModule {}

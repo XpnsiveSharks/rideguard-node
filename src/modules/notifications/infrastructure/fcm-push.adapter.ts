@@ -39,21 +39,41 @@ export class FcmPushAdapter {
     const content = this.buildMessageContent(notification);
     const batches = this.chunkTokens(uniqueTokens);
 
-    // Each batch is an independent multicast call; run them together and keep
-    // each response aligned with the batch's token order.
-    const batchOutcomes = await Promise.all(
-      batches.map(async (batch) => {
-        const response = await this.messaging.sendEachForMulticast({
-          tokens: batch,
-          notification: content.notification,
-          data: content.data,
-        });
-
-        return response.responses.map((result, index) => this.toOutcome(batch[index], result));
-      }),
-    );
+    // Each batch is an independent multicast call. `sendBatch` never rejects, so
+    // one failed batch cannot discard the results of the batches that succeeded.
+    const batchOutcomes = await Promise.all(batches.map((batch) => this.sendBatch(batch, content)));
 
     return batchOutcomes.flat();
+  }
+
+  // Sends one batch and returns an outcome per token. If the whole call fails
+  // (network, auth, quota, etc.), every token in the batch is reported as failed
+  // instead of throwing, so the caller still gets the other batches' results.
+  private async sendBatch(batch: string[], content: FcmMessageContent): Promise<FcmSendOutcome[]> {
+    try {
+      const response = await this.messaging.sendEachForMulticast({
+        tokens: batch,
+        notification: content.notification,
+        data: content.data,
+      });
+
+      return response.responses.map((result, index) => this.toOutcome(batch[index], result));
+    } catch (error) {
+      // A batch-level failure is transient/unknown, so isInvalidToken stays false
+      // and none of these registrations are cleaned up.
+      const errorCode = this.extractErrorCode(error);
+      return batch.map((token) => ({ token, success: false, isInvalidToken: false, errorCode }));
+    }
+  }
+
+  // FirebaseError carries a string `code`. Pull it out for logging without
+  // assuming the error shape; never return the raw error or any token.
+  private extractErrorCode(error: unknown): string | undefined {
+    if (error && typeof error === 'object' && 'code' in error) {
+      const code = (error as { code?: unknown }).code;
+      return typeof code === 'string' ? code : undefined;
+    }
+    return undefined;
   }
 
   // Maps the value object to FCM's shape. Title/body/imageUrl go into the visible

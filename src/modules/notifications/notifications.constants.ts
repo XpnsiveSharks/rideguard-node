@@ -1,9 +1,11 @@
 export const NotificationEvents = {
   PUSH_REGISTRATION_CREATED: 'push.registration.created',
+  PUSH_SEND_COMPLETED: 'push.send.completed',
 } as const;
 
 export const NotificationMessages = {
   PUSH_CREATED_MESSAGE: 'push registration created',
+  PUSH_SEND_COMPLETED_MESSAGE: 'push notification send completed',
 } as const;
 
 // Firestore's `in` operator accepts at most 30 values per query. Larger lists of
