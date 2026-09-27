@@ -4,6 +4,7 @@ import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
 import { PushRegistration, PushRegistrationFields } from '../domain/push-registration.entity';
 import { NotificationMapper, PUSH_REGISTRATION_COLLECTION } from './notification.mapper';
 import type { DeleteRegistrationResult } from '../notifications.types';
+import { FIRESTORE_IN_QUERY_LIMIT } from '../notifications.constants';
 
 @Injectable()
 export class PushRegistrationsRepository {
@@ -18,6 +19,39 @@ export class PushRegistrationsRepository {
       .collection(PUSH_REGISTRATION_COLLECTION)
       .doc(persistenceData.installationId)
       .set(persistenceData);
+  }
+
+  // Loads every push registration belonging to any of the given users. Callers
+  // decide who to notify and how; this method only fetches the raw registrations.
+  async findByUserIds(userIds: readonly string[]): Promise<PushRegistration[]> {
+    // Drop duplicates so we don't query for or return the same user twice.
+    const uniqueUserIds = [...new Set(userIds)];
+
+    if (uniqueUserIds.length === 0) {
+      return [];
+    }
+
+    const collection = this.firestore.collection(PUSH_REGISTRATION_COLLECTION);
+
+    // Firestore's `in` operator caps the list length, so we split the user IDs
+    // into chunks and run one query per chunk.
+    const chunks = this.chunkUserIds(uniqueUserIds);
+    const snapshots = await Promise.all(
+      chunks.map((chunk) => collection.where('userId', 'in', chunk).get()),
+    );
+
+    return snapshots.flatMap((snapshot) =>
+      snapshot.docs.map((doc) => NotificationMapper.toDomain(doc.data() as PushRegistrationFields)),
+    );
+  }
+
+  // Break a list of user IDs into groups that each fit Firestore's `in` limit.
+  private chunkUserIds(userIds: string[]): string[][] {
+    const chunks: string[][] = [];
+    for (let index = 0; index < userIds.length; index += FIRESTORE_IN_QUERY_LIMIT) {
+      chunks.push(userIds.slice(index, index + FIRESTORE_IN_QUERY_LIMIT));
+    }
+    return chunks;
   }
 
   async deleteOwnedRegistration(
