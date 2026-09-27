@@ -1,9 +1,18 @@
-import { Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
-import { Device, DeviceInfo, DeviceStatus } from './domain/device.entity';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
+import { Device, DeviceType } from './domain/device.entity';
 import { DeviceRepository } from './infrastructure/devices.repository';
 import { DeviceId } from './domain/device-id.value-object';
 import { PinoLogger } from 'nestjs-pino';
-import { DEVICE_EVENTS } from './device.constants';
+import {
+  DEVICE_EVENTS,
+  DEVICE_MESSAGES,
+  MAX_DEVICE_ID_GENERATION_ATTEMPTS,
+} from './device.constants';
 
 @Injectable()
 export class DevicesService {
@@ -13,64 +22,63 @@ export class DevicesService {
   ) {}
 
   // *** REGISTER NEW HARDWARE DEVICE - ADMIN ***
-  async registerDevice(input: DeviceInfo): Promise<void> {
-    const device = Device.create({
-      deviceType: input.deviceType,
-      status: DeviceStatus.STANDBY,
-    });
-    const generateDeviceId = device.getDeviceId();
+  async registerDevice(deviceType: DeviceType): Promise<string> {
+    // Generated IDs can collide, so regenerate until we find a free one.
+    for (let attempt = 1; attempt <= MAX_DEVICE_ID_GENERATION_ATTEMPTS; attempt++) {
+      const device = Device.create(deviceType);
+      const deviceId = device.getDeviceId();
 
-    // This checks first if our generated device ID already exists in the database.
-    const isGeneratedIdExisting = await this.deviceRepository.findDeviceById(generateDeviceId);
-    // If the generated device ID does not exist
-    if (!isGeneratedIdExisting) {
-      // And save it to the database
+      const existingDevice = await this.deviceRepository.findDeviceById(deviceId);
+      if (existingDevice) {
+        continue;
+      }
+
       await this.deviceRepository.saveDevice(device);
+
       this.logger.info(
         { event: DEVICE_EVENTS.DEVICE_CREATED },
-        `Device registered with ID: ${generateDeviceId}`,
+        DEVICE_MESSAGES.DEVICE_CREATED_MESSAGE(deviceId),
       );
+
+      return deviceId;
     }
+
+    throw new ConflictException(
+      'Could not generate a unique device ID. Please try registering again.',
+    );
   }
 
   // *** ASSIGN DEVICE TO USER - USER ***
   async assignDeviceToUser(deviceId: string, assignedUserId: string | undefined): Promise<void> {
     DeviceId.isEmpty(deviceId);
 
-    if (!assignedUserId) {
+    const userId = assignedUserId?.trim();
+
+    if (!userId) {
       throw new UnprocessableEntityException(
         'We could not verify your account. Please log in again.',
       );
     }
 
-    const device = await this.deviceRepository.findDeviceById(deviceId);
-    if (!device) {
-      throw new NotFoundException(`Incorrect device ID: ${deviceId}`);
-    }
+    this.logger.info(`Assigning device ${deviceId} to user ${userId}`);
+    const updatedDevice = await this.deviceRepository.assignToUser(deviceId, userId);
 
-    const updatedDevice = Device.AssignDeviceToUser(device, assignedUserId);
-    await this.deviceRepository.updateDevice(deviceId, {
-      assignedUserId: updatedDevice.getAssignedUserId(),
-    });
     this.logger.info(
       { event: DEVICE_EVENTS.DEVICE_ASSIGNED },
-      `Device assigned to user: ${assignedUserId}`,
+      DEVICE_MESSAGES.DEVICE_ASSIGNED_MESSAGE(updatedDevice.getDeviceId()),
     );
   }
 
   // *** DEVICE ACTIVATION - HARDWARE ***
   async activateDevice(deviceId: string): Promise<void> {
     DeviceId.isEmpty(deviceId);
-    const device = await this.deviceRepository.findDeviceById(deviceId);
-    if (!device) {
-      throw new NotFoundException(`Incorrect device ID: ${deviceId}`);
-    }
-    const updatedDevice = Device.updateDeviceStatus(device, DeviceStatus.PROVISIONED);
-    await this.deviceRepository.updateDevice(deviceId, {
-      status: updatedDevice.getStatus(),
-    });
 
-    this.logger.info({ event: DEVICE_EVENTS.DEVICE_ACTIVATED }, `Device activated: ${deviceId}`);
+    const activatedDevice = await this.deviceRepository.activate(deviceId);
+
+    this.logger.info(
+      { event: DEVICE_EVENTS.DEVICE_ACTIVATED },
+      DEVICE_MESSAGES.DEVICE_ACTIVATED_MESSAGE(activatedDevice.getDeviceId()),
+    );
   }
 
   // *** GET ASSIGNED USER ID BY DEVICE ID - USER ***
