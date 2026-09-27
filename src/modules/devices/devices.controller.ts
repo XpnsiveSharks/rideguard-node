@@ -34,4 +34,15 @@ export class DevicesController {
   activateDevice(@Param('device_id') deviceId: string) {
     return this.devicesService.activateDevice(deviceId);
   }
+
+  // HARDWARE ROUTE
+  // route: POST /devices/button-event/:device_id/:button_event
+  @Public()
+  @Post('button-event/:device_id/:button_event')
+  handleButtonEvent(
+    @Param('device_id') deviceId: string,
+    @Param('button_event') buttonEvent: string,
+  ) {
+    return this.devicesService.handleButtonEvent(deviceId, buttonEvent);
+  }
 }
