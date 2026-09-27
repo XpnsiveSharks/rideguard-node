@@ -22,8 +22,9 @@ export class DevicesController {
   // MOBILE ROUTE
   // route: PATCH /devices/claim-device/:device_id
   @Patch('claim-device/:device_id')
-  assignDeviceToUser(@Param('device_id') deviceId: string, @Req() req: Request) {
-    return this.devicesService.assignDeviceToUser(deviceId, req.user?.uid);
+  assignDeviceToUser(@Param('device_id') device_id: string, @Req() req: Request) {
+    console.log(`Assigning device ${device_id} to user ${req.user?.uid}`);
+    return this.devicesService.assignDeviceToUser(device_id, req.user?.uid);
   }
 
   // HARDWARE ROUTE

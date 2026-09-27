@@ -1,7 +1,7 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { Firestore } from 'firebase-admin/firestore';
 import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
-import { Device, DeviceFields, DeviceStatus } from '../domain/device.entity';
+import { Device, DeviceFields } from '../domain/device.entity';
 import { DeviceMapper, DEVICES_COLLECTION } from './devices.mapper';
 import { FieldValue } from 'firebase-admin/firestore';
 
@@ -51,7 +51,7 @@ export class DeviceRepository {
 
       const device = DeviceMapper.toDomain(snapshot.data() as DeviceFields);
 
-      const activatedDevice = device.updateStatus(DeviceStatus.PROVISIONED);
+      const activatedDevice = device.activate();
 
       transaction.update(reference, {
         status: activatedDevice.getStatus(),

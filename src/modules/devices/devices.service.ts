@@ -60,8 +60,8 @@ export class DevicesService {
       );
     }
 
+    this.logger.info(`Assigning device ${deviceId} to user ${userId}`);
     const updatedDevice = await this.deviceRepository.assignToUser(deviceId, userId);
-    await this.deviceRepository.assignToUser(deviceId, userId);
 
     this.logger.info(
       { event: DEVICE_EVENTS.DEVICE_ASSIGNED },

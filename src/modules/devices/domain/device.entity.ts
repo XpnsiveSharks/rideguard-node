@@ -62,10 +62,14 @@ export class Device {
     });
   }
 
-  updateStatus(status: DeviceStatus): Device {
+  activate(): Device {
+    if (this.fields.status === DeviceStatus.PROVISIONED) {
+      return this;
+    }
+
     return new Device({
       ...this.fields,
-      status,
+      status: DeviceStatus.PROVISIONED,
       updatedAt: new Date(),
     });
   }
