@@ -1,9 +1,17 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { Firestore } from 'firebase-admin/firestore';
-import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
+import { FIREBASE_FIRESTORE, NOT_FOUND_ERROR_CODE } from '@/infra/firebase/firebase.constants';
 import { Device, DeviceFields } from '../domain/device.entity';
 import { DeviceMapper, DEVICES_COLLECTION } from './devices.mapper';
 import { FieldValue } from 'firebase-admin/firestore';
+
+function firestoreErrorCode(error: unknown): number | undefined {
+  if (typeof error === 'object' && error !== null && 'code' in error) {
+    const { code } = error;
+    return typeof code === 'number' ? code : undefined;
+  }
+  return undefined;
+}
 
 @Injectable()
 export class DeviceRepository {
@@ -60,6 +68,20 @@ export class DeviceRepository {
 
       return activatedDevice;
     });
+  }
+
+  async rotateSecret(deviceId: string, deviceSecretHash: string): Promise<void> {
+    try {
+      await this.firestore.collection(DEVICES_COLLECTION).doc(deviceId).update({
+        deviceSecretHash,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    } catch (error) {
+      if (firestoreErrorCode(error) === NOT_FOUND_ERROR_CODE) {
+        throw new NotFoundException(`Incorrect device ID: ${deviceId}`);
+      }
+      throw error;
+    }
   }
 
   async findDeviceById(deviceId: string): Promise<Device | null> {
