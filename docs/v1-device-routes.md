@@ -18,6 +18,7 @@ http://localhost:5565/v1
 | `POST`  | `/v1/devices/register-device`       | Admin app    | Firebase ID token   | Register a new hardware unit in inventory. |
 | `PATCH` | `/v1/devices/claim-device/:device_id` | Mobile app | Firebase ID token   | Bind an existing device to the caller.     |
 | `PATCH` | `/v1/devices/activate-device/:device_id` | Hardware device | **Public** | Mark the device as provisioned on boot.    |
+| `POST`  | `/v1/devices/:device_id/rotate-secret` | Admin / manufacturing staff | Firebase ID token + `admin`/`manufacturing` role | Replace a device's secret without changing its ID. |
 
 ## Consumers
 
@@ -209,6 +210,63 @@ Status `200 OK`. The handler returns no payload.
 > **Note:** the controller comment lists `422` for this route, but
 > `activateDevice` never throws `UnprocessableEntityException` — that status
 > only comes from `claim-device`.
+
+## POST /v1/devices/:device_id/rotate-secret
+
+**Consumer: Admin / manufacturing staff.**
+
+Generates a new secret for an existing device, stores only its SHA-256 hash, and
+returns the new raw secret once. The device's ID, owner, status, and history are
+unchanged. A valid Firebase token is not enough: the token must carry a `role`
+custom claim of `admin` or `manufacturing`, or the request is rejected with
+`403`.
+
+### Request
+
+| Parameter   | In   | Type   | Required | Notes                                     |
+| ----------- | ---- | ------ | -------- | ----------------------------------------- |
+| `device_id` | Path | string | Yes      | Existing device ID, e.g. `BUT-123-ABC`.   |
+
+No request body. The secret is always generated on the backend.
+
+```http
+POST /v1/devices/BUT-123-ABC/rotate-secret
+Authorization: Bearer <firebase-id-token>
+```
+
+### Success Response
+
+Status `201 Created`. The response includes `Cache-Control: no-store` and
+returns the device ID and its new secret in `data`.
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "deviceId": "BUT-123-ABC",
+    "deviceSecret": "<new-generated-secret>"
+  },
+  "timestamp": "2026-09-05T00:00:00.000Z"
+}
+```
+
+> **Note:** `deviceSecret` is returned only once, right after the update
+> succeeds. Staff must write this new secret onto the ESP32; the old secret stops
+> working once verification is in place. The server stores only the hash, so the
+> raw secret cannot be retrieved later. A device that never had a secret can
+> receive one through this route. Existing Ably tokens stay valid until they
+> expire unless revoked separately.
+
+### Errors
+
+| Status | Reason                                                            |
+| ------ | ---------------------------------------------------------------- |
+| `400`  | `device_id` is blank or whitespace only.                         |
+| `401`  | Missing or invalid Firebase bearer token.                        |
+| `403`  | Token lacks the `admin` or `manufacturing` role claim.           |
+| `404`  | No device exists with the given ID.                              |
+| `429`  | Request exceeded the global throttle limit.                      |
 
 ## Known Gaps
 
