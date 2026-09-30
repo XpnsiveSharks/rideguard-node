@@ -4,7 +4,6 @@ import { Post, Body, Patch, Param, Req, Res } from '@nestjs/common';
 import { DeviceRegistrationDto } from './devices.dto';
 import type { Request, Response } from 'express';
 import { Public } from '@/common/decorators/public.decorator';
-import { generateDeviceSecret } from './infrastructure/device-secret';
 import type { RegisterDeviceResult } from './devices.types';
 
 @Controller('devices')
