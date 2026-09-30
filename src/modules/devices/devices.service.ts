@@ -8,7 +8,7 @@ import { Device, DeviceType } from './domain/device.entity';
 import { DeviceRepository } from './infrastructure/devices.repository';
 import { DeviceId } from './domain/device-id.value-object';
 import { generateDeviceSecret, hashDeviceSecret } from './infrastructure/device-secret';
-import type { RegisterDeviceResult } from './devices.types';
+import type { RegisterDeviceResult, RotateDeviceSecretResult } from './devices.types';
 import { PinoLogger } from 'nestjs-pino';
 import {
   DEVICE_EVENTS,
@@ -51,6 +51,26 @@ export class DevicesService {
     throw new ConflictException(
       'Could not generate a unique device ID. Please try registering again.',
     );
+  }
+
+  // *** ROTATE DEVICE SECRET - ADMIN / MANUFACTURING ***
+  async rotateDeviceSecret(deviceId: string): Promise<RotateDeviceSecretResult> {
+    DeviceId.isEmpty(deviceId);
+
+    // Only the hash is persisted; the raw secret stays in memory and is returned
+    // once after the update succeeds. It is never stored or logged.
+    const deviceSecret = generateDeviceSecret();
+    const deviceSecretHash = hashDeviceSecret(deviceSecret);
+
+    // Throws NotFoundException when the device does not exist; never creates one.
+    await this.deviceRepository.rotateSecret(deviceId, deviceSecretHash);
+
+    this.logger.info(
+      { event: DEVICE_EVENTS.DEVICE_SECRET_ROTATED },
+      DEVICE_MESSAGES.DEVICE_SECRET_ROTATED_MESSAGE(deviceId),
+    );
+
+    return { deviceId, deviceSecret };
   }
 
   // *** ASSIGN DEVICE TO USER - USER ***
