@@ -1,81 +1,92 @@
-import { parseEnumValue } from '@/common/helpers/enum-parser';
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { DeviceId } from './device-id.value-object';
 
+export enum DeviceType {
+  CAMERA = 'camera',
+  BUTTON = 'button',
+}
+
+export enum DeviceStatus {
+  PROVISIONED = 'provisioned',
+  STANDBY = 'standby',
+}
+
+export type DeviceFields = {
+  deviceId: string;
+  deviceType: DeviceType;
+  status: DeviceStatus;
+  assignedUserId?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+};
+
 export class Device {
-  constructor(public readonly deviceInfo: DeviceInfo) {}
+  private constructor(private readonly fields: DeviceFields) {}
 
-  public static create(deviceInfo: DeviceInfo): Device {
-    const trimmedDeviceType = parseEnumValue(deviceInfo.deviceType, DeviceType, 'device type');
-    if (!trimmedDeviceType) throw new BadRequestException('First name is required');
-
-    const trimmedStatus = parseEnumValue(deviceInfo.status, DeviceStatus, 'device status');
-    if (!trimmedStatus) throw new BadRequestException('First name is required');
-
-    const deviceId = !deviceInfo.deviceId
-      ? DeviceId.generate(trimmedDeviceType)
-      : DeviceId.create(deviceInfo.deviceId.toString(), trimmedDeviceType);
+  static create(deviceType: DeviceType): Device {
+    const deviceId = DeviceId.generate(deviceType);
 
     return new Device({
       deviceId: deviceId.toString(),
-      deviceType: trimmedDeviceType,
-      status: trimmedStatus,
+      deviceType,
+      status: DeviceStatus.STANDBY,
     });
   }
 
-  public static AssignDeviceToUser(device: Device, assignedUserId: string): Device {
-    const trimmedAssignedUserId = assignedUserId?.trim();
-    if (!trimmedAssignedUserId) throw new BadRequestException('Assigned user ID is required');
-
+  static reconstitute(fields: DeviceFields): Device {
     return new Device({
-      ...device.deviceInfo,
-      assignedUserId: trimmedAssignedUserId,
+      ...fields,
     });
   }
 
-  public static updateDeviceStatus(device: Device, status: DeviceStatus): Device {
+  assignToUser(userId: string): Device {
+    const normalizedUserId = userId.trim();
+
+    if (!normalizedUserId) {
+      throw new BadRequestException('User ID is required');
+    }
+
+    if (this.fields.assignedUserId && this.fields.assignedUserId !== normalizedUserId) {
+      throw new ConflictException('Device is already assigned to another user');
+    }
+
+    // Allow the same request to run more than once.
+    if (this.fields.assignedUserId === normalizedUserId) {
+      return this;
+    }
+
     return new Device({
-      ...device.deviceInfo,
-      status: status,
+      ...this.fields,
+      assignedUserId: normalizedUserId,
+      updatedAt: new Date(),
+    });
+  }
+
+  activate(): Device {
+    if (this.fields.status === DeviceStatus.PROVISIONED) {
+      return this;
+    }
+
+    return new Device({
+      ...this.fields,
+      status: DeviceStatus.PROVISIONED,
+      updatedAt: new Date(),
     });
   }
 
   getDeviceId(): string {
-    if (!this.deviceInfo.deviceId) {
-      throw new BadRequestException('Device ID is required');
-    }
-    return this.deviceInfo.deviceId.toString();
+    return this.fields.deviceId;
   }
 
   getDeviceType(): DeviceType {
-    return this.deviceInfo.deviceType as DeviceType;
+    return this.fields.deviceType;
   }
 
   getStatus(): DeviceStatus {
-    return this.deviceInfo.status as DeviceStatus;
+    return this.fields.status;
   }
 
-  getAssignedUserId(): string {
-    if (!this.deviceInfo.assignedUserId) {
-      throw new BadRequestException('Assigned user ID is required');
-    }
-    return this.deviceInfo.assignedUserId;
+  getAssignedUserId(): string | undefined {
+    return this.fields.assignedUserId;
   }
 }
-
-export enum DeviceType {
-  CAMERA = 'Camera',
-  METAL_DETECTOR = 'Metal-Detector',
-}
-
-export enum DeviceStatus {
-  PROVISIONED = 'Provisioned',
-  STANDBY = 'Standby',
-}
-
-export type DeviceInfo = {
-  deviceId?: string;
-  deviceType: string;
-  status?: string;
-  assignedUserId?: string;
-};
