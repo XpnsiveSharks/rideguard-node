@@ -37,8 +37,9 @@ ID token unless the handler is marked `@Public()`.
 Authorization: Bearer <firebase-id-token>
 ```
 
-Successful responses are wrapped by `ResponseInterceptor`. None of the device
-handlers return a payload, so `data` is always an empty object.
+Successful responses are wrapped by `ResponseInterceptor`. Most device handlers
+return no payload, so `data` is an empty object. The exception is
+`register-device`, which returns the device ID and its one-time secret in `data`.
 
 Device IDs use the format `CAM-123-ABC`: a three-letter prefix derived from the
 device type, three digits, and three letters, separated by `-`.
@@ -73,21 +74,27 @@ Example:
 
 ### Success Response
 
-Status `201 Created`. The handler returns no payload.
+Status `201 Created`. The response includes `Cache-Control: no-store` and
+returns the generated device ID and its secret in `data`.
 
 ```json
 {
   "success": true,
   "message": "Request completed successfully",
-  "data": {},
+  "data": {
+    "deviceId": "BUT-123-ABC",
+    "deviceSecret": "<generated-secret>"
+  },
   "timestamp": "2026-09-05T00:00:00.000Z"
 }
 ```
 
-> **Note:** the generated device ID is not returned. The admin app has to read
-> it from Firestore (`devices` collection) to learn which ID was created. Also,
-> if the generated ID collides with an existing document, the service skips the
-> write and still responds `201` — the caller cannot tell the difference.
+> **Note:** `deviceSecret` is returned only once, right after the device is
+> created. The server stores only a SHA-256 hash of it, so the raw secret cannot
+> be retrieved later through any lookup or update route. The manufacturing tool
+> must capture both values from this response and flash them onto the unit. If a
+> unique ID cannot be generated after several attempts, the request fails with
+> `409` instead of returning a secret.
 
 ### Errors
 
@@ -95,6 +102,7 @@ Status `201 Created`. The handler returns no payload.
 | ------ | ------------------------------------------------------------------------- |
 | `400`  | `device_type` missing, not one of the supported values, or unknown fields sent. |
 | `401`  | Missing or invalid Firebase bearer token.                                 |
+| `409`  | Could not generate a unique device ID after several attempts.             |
 | `429`  | Request exceeded the global throttle limit.                               |
 
 Validation error example:
@@ -211,5 +219,6 @@ These are behaviors worth confirming before the routes are treated as final:
 2. `activate-device` is fully public and takes only a device ID, so anyone who
    knows or guesses an ID can flip it to `Provisioned`. IDs are 3 digits plus
    3 letters (~17.5M combinations per prefix), guarded only by the throttler.
-3. `register-device` does not surface the generated device ID, and swallows ID
-   collisions instead of retrying.
+3. `register-device` is not yet restricted to authorized manufacturing staff.
+   It must be role-restricted before production use, since it hands back a
+   device secret.

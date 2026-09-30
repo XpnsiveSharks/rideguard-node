@@ -1,9 +1,11 @@
 import { Controller } from '@nestjs/common';
 import { DevicesService } from './devices.service';
-import { Post, Body, Patch, Param, Req } from '@nestjs/common';
+import { Post, Body, Patch, Param, Req, Res } from '@nestjs/common';
 import { DeviceRegistrationDto } from './devices.dto';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { Public } from '@/common/decorators/public.decorator';
+import { generateDeviceSecret } from './infrastructure/device-secret';
+import type { RegisterDeviceResult } from './devices.types';
 
 @Controller('devices')
 export class DevicesController {
@@ -12,11 +14,17 @@ export class DevicesController {
   // ADMIN ROUTE
   // route: POST /devices
   @Post()
-  registerDevice(
+  async registerDevice(
     @Body()
     body: DeviceRegistrationDto,
-  ): Promise<string> {
-    return this.devicesService.registerDevice(body.device_type);
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<RegisterDeviceResult> {
+    const result = await this.devicesService.registerDevice(body.device_type);
+
+    // This removes the secret from any shared cache.
+    res.setHeader('Cache-Control', 'no-store');
+
+    return result;
   }
 
   // MOBILE ROUTE
