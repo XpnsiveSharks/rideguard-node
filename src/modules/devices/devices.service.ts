@@ -7,6 +7,7 @@ import {
 import { Device, DeviceType } from './domain/device.entity';
 import { DeviceRepository } from './infrastructure/devices.repository';
 import { DeviceId } from './domain/device-id.value-object';
+import { generateDeviceSecret, hashDeviceSecret } from './infrastructure/device-secret';
 import { PinoLogger } from 'nestjs-pino';
 import {
   DEVICE_EVENTS,
@@ -23,9 +24,13 @@ export class DevicesService {
 
   // *** REGISTER NEW HARDWARE DEVICE - ADMIN ***
   async registerDevice(deviceType: DeviceType): Promise<string> {
+    // Hash the raw secret before it ever leaves this scope; only the hash is
+    // stored, and the raw secret is never persisted or logged.
+    const deviceSecretHash = hashDeviceSecret(generateDeviceSecret());
+
     // Generated IDs can collide, so regenerate until we find a free one.
     for (let attempt = 1; attempt <= MAX_DEVICE_ID_GENERATION_ATTEMPTS; attempt++) {
-      const device = Device.create(deviceType);
+      const device = Device.create(deviceType, deviceSecretHash);
       const deviceId = device.getDeviceId();
 
       const existingDevice = await this.deviceRepository.findDeviceById(deviceId);
