@@ -16,6 +16,7 @@ export type DeviceFields = {
   deviceType: DeviceType;
   status: DeviceStatus;
   assignedUserId?: string;
+  deviceSecretHash?: string;
   createdAt?: Date;
   updatedAt?: Date;
 };
@@ -23,13 +24,14 @@ export type DeviceFields = {
 export class Device {
   private constructor(private readonly fields: DeviceFields) {}
 
-  static create(deviceType: DeviceType): Device {
+  static create(deviceType: DeviceType, deviceSecretHash: string): Device {
     const deviceId = DeviceId.generate(deviceType);
 
     return new Device({
       deviceId: deviceId.toString(),
       deviceType,
       status: DeviceStatus.STANDBY,
+      deviceSecretHash,
     });
   }
 
@@ -88,5 +90,9 @@ export class Device {
 
   getAssignedUserId(): string | undefined {
     return this.fields.assignedUserId;
+  }
+
+  getDeviceSecretHash(): string | undefined {
+    return this.fields.deviceSecretHash;
   }
 }

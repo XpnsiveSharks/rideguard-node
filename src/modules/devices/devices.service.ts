@@ -7,6 +7,8 @@ import {
 import { Device, DeviceType } from './domain/device.entity';
 import { DeviceRepository } from './infrastructure/devices.repository';
 import { DeviceId } from './domain/device-id.value-object';
+import { generateDeviceSecret, hashDeviceSecret } from './infrastructure/device-secret';
+import type { RegisterDeviceResult, RotateDeviceSecretResult } from './devices.types';
 import { PinoLogger } from 'nestjs-pino';
 import {
   DEVICE_EVENTS,
@@ -22,10 +24,13 @@ export class DevicesService {
   ) {}
 
   // *** REGISTER NEW HARDWARE DEVICE - ADMIN ***
-  async registerDevice(deviceType: DeviceType): Promise<string> {
+  async registerDevice(deviceType: DeviceType): Promise<RegisterDeviceResult> {
+    const deviceSecret = generateDeviceSecret();
+    const deviceSecretHash = hashDeviceSecret(deviceSecret);
+
     // Generated IDs can collide, so regenerate until we find a free one.
     for (let attempt = 1; attempt <= MAX_DEVICE_ID_GENERATION_ATTEMPTS; attempt++) {
-      const device = Device.create(deviceType);
+      const device = Device.create(deviceType, deviceSecretHash);
       const deviceId = device.getDeviceId();
 
       const existingDevice = await this.deviceRepository.findDeviceById(deviceId);
@@ -40,12 +45,32 @@ export class DevicesService {
         DEVICE_MESSAGES.DEVICE_CREATED_MESSAGE(deviceId),
       );
 
-      return deviceId;
+      return { deviceId, deviceSecret };
     }
 
     throw new ConflictException(
       'Could not generate a unique device ID. Please try registering again.',
     );
+  }
+
+  // *** ROTATE DEVICE SECRET - ADMIN / MANUFACTURING ***
+  async rotateDeviceSecret(deviceId: string): Promise<RotateDeviceSecretResult> {
+    DeviceId.isEmpty(deviceId);
+
+    // Only the hash is persisted; the raw secret stays in memory and is returned
+    // once after the update succeeds. It is never stored or logged.
+    const deviceSecret = generateDeviceSecret();
+    const deviceSecretHash = hashDeviceSecret(deviceSecret);
+
+    // Throws NotFoundException when the device does not exist; never creates one.
+    await this.deviceRepository.rotateSecret(deviceId, deviceSecretHash);
+
+    this.logger.info(
+      { event: DEVICE_EVENTS.DEVICE_SECRET_ROTATED },
+      DEVICE_MESSAGES.DEVICE_SECRET_ROTATED_MESSAGE(deviceId),
+    );
+
+    return { deviceId, deviceSecret };
   }
 
   // *** ASSIGN DEVICE TO USER - USER ***
