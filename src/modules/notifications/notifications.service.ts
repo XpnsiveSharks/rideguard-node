@@ -34,9 +34,6 @@ export class NotificationsService {
     try {
       pushRegistration = PushRegistration.create(registration);
     } catch (error) {
-      // The domain layer throws its own error type so it stays free of NestJS.
-      // At this HTTP boundary we turn that into a 400 Bad Request. Any other
-      // error is unexpected, so we let it bubble up unchanged.
       if (error instanceof PushRegistrationValidationError) {
         throw new BadRequestException(error.message);
       }

@@ -9,6 +9,7 @@ export class DeviceMapper {
       deviceType: device.getDeviceType(),
       status: device.getStatus(),
       assignedUserId: device.getAssignedUserId(),
+      deviceSecretHash: device.getDeviceSecretHash(),
     };
   }
 
@@ -18,6 +19,7 @@ export class DeviceMapper {
       deviceType: document.deviceType,
       status: document.status,
       assignedUserId: document.assignedUserId,
+      deviceSecretHash: document.deviceSecretHash,
       createdAt: document.createdAt,
       updatedAt: document.updatedAt,
     });

@@ -26,6 +26,7 @@ Copy-Item .env.example .env
 | `FIREBASE_CLIENT_EMAIL` | email string | `firebase-adminsdk-...@...iam.gserviceaccount.com` | Firebase service account client email. |
 | `FIREBASE_PRIVATE_KEY` | string | `"-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"` | Firebase service account private key. Keep the escaped `\n` characters in `.env`. |
 | `ABLY_API_KEY` | string | `appId.keyId:keySecret` | Ably API key used by the shared REST client. See [Ably](ably.md). |
+| `DEVICE_ABLY_ISSUER_API_KEY` | string | `appId.keyId:keySecret` | Required server-only key used to issue hardware publisher tokens. Must allow `publish` on `rideguard:buttons:device:*`. |
 
 ## How Validation Works
 
