@@ -51,7 +51,6 @@ export class DeviceTokenService {
         channel,
       };
     } catch {
-      // SDK errors may contain credentials. Do not return or log them.
       throw new ServiceUnavailableException(
         'Unable to issue device token. Please try again later.',
       );

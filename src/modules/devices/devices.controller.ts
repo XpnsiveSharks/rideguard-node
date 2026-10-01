@@ -1,4 +1,4 @@
-import { Controller, UseGuards } from '@nestjs/common';
+import { Controller, Header, Headers, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { DevicesService } from './devices.service';
 import { Post, Body, Patch, Param, Req, Res } from '@nestjs/common';
 import { DeviceRegistrationDto } from './devices.dto';
@@ -6,11 +6,31 @@ import type { Request, Response } from 'express';
 import { Public } from '@/common/decorators/public.decorator';
 import { Roles } from '@/common/decorators/roles.decorator';
 import { RolesGuard } from '@/common/guards/roles.guard';
-import type { RegisterDeviceResult, RotateDeviceSecretResult } from './devices.types';
+import type {
+  DevicePublisherTokenResult,
+  RegisterDeviceResult,
+  RotateDeviceSecretResult,
+} from './devices.types';
+import { DeviceTokenService } from './device-token.service';
 
 @Controller('devices')
 export class DevicesController {
-  constructor(private readonly devicesService: DevicesService) {}
+  constructor(
+    private readonly devicesService: DevicesService,
+    private readonly deviceTokenService: DeviceTokenService,
+  ) {}
+
+  // Skips Firebase auth; DeviceTokenService verifies the hardware secret instead.
+  @Public()
+  @Post(':device_id/ably-token')
+  @HttpCode(HttpStatus.OK)
+  @Header('Cache-Control', 'no-store')
+  getPublisherToken(
+    @Param('device_id') deviceId: string,
+    @Headers('authorization') authorization: string | undefined,
+  ): Promise<DevicePublisherTokenResult> {
+    return this.deviceTokenService.issuePublisherToken(deviceId, authorization);
+  }
 
   // ADMIN ROUTE
   // route: POST /devices
