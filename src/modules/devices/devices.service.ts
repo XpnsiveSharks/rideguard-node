@@ -2,8 +2,10 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { timingSafeEqual } from 'node:crypto';
 import { Device, DeviceType } from './domain/device.entity';
 import { DeviceRepository } from './infrastructure/devices.repository';
 import { DeviceId } from './domain/device-id.value-object';
@@ -22,6 +24,33 @@ export class DevicesService {
     private readonly deviceRepository: DeviceRepository,
     private readonly logger: PinoLogger,
   ) {}
+
+  async verifyDeviceCredentials(deviceId: string, secret: string): Promise<Device> {
+    if (!secret?.trim()) {
+      throw new UnauthorizedException('Invalid device credentials');
+    }
+
+    let normalizedDeviceId: string;
+    try {
+      normalizedDeviceId = DeviceId.create(deviceId).toString();
+    } catch {
+      throw new UnauthorizedException('Invalid device credentials');
+    }
+
+    // Keep database failures separate from authentication failures.
+    const device = await this.deviceRepository.findDeviceById(normalizedDeviceId);
+    const storedHash = device?.getDeviceSecretHash();
+    if (!device || typeof storedHash !== 'string' || !/^[a-f0-9]{64}$/.test(storedHash)) {
+      throw new UnauthorizedException('Invalid device credentials');
+    }
+
+    const suppliedHash = Buffer.from(hashDeviceSecret(secret), 'hex');
+    if (!timingSafeEqual(suppliedHash, Buffer.from(storedHash, 'hex'))) {
+      throw new UnauthorizedException('Invalid device credentials');
+    }
+
+    return device;
+  }
 
   // *** REGISTER NEW HARDWARE DEVICE - ADMIN ***
   async registerDevice(deviceType: DeviceType): Promise<RegisterDeviceResult> {

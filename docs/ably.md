@@ -96,6 +96,31 @@ const { capability } = await ably.auth.requestToken();
 
 A backend key that publishes needs `publish` on the channels it writes to.
 
+## Hardware Token Issuer
+
+`ABLY_DEVICE_ISSUER` is a separate REST client configured with the required
+`DEVICE_ABLY_ISSUER_API_KEY`. It does not fall back to `ABLY_API_KEY` or
+`UPSTREAM_ABLY_API_KEY`. Set this variable in each deployed environment as well
+as local `.env` files.
+
+Configure its capability in the Ably dashboard to allow:
+
+```json
+{ "rideguard:buttons:device:*": ["publish"] }
+```
+
+The hardware endpoint requests a narrower capability for exactly one device,
+binds the token's `clientId` to the device ID, and sets a one-hour lifetime.
+It uses `auth.requestToken()` to return a usable token, so the ESP32 does not
+need to exchange a signed token request. See [hardware token requests](v1-device-routes.md#post-v1devicesdevice_idably-token).
+
+Tokens belong to the Ably app containing the issuer key. Any consumer of these
+button events must connect to that same Ably app. This endpoint does not add a
+button-event subscriber or change the existing inference/alert channels.
+
+See [Ably authentication](https://ably.com/docs/api/rest-sdk/authentication) and
+[capabilities](https://ably.com/docs/auth/capabilities).
+
 ## Keeping The Key Out Of Logs
 
 Two things guard this, and both matter when changing this module:

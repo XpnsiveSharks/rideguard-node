@@ -1,3 +1,5 @@
+import type { TokenDetails } from 'ably';
+
 // Result of registering a new device. - for manufacturers
 export interface RegisterDeviceResult {
   deviceId: string;
@@ -9,4 +11,7 @@ export interface RegisterDeviceResult {
 export interface RotateDeviceSecretResult {
   deviceId: string;
   deviceSecret: string;
+}
+export interface DevicePublisherTokenResult extends TokenDetails {
+  channel: string;
 }
