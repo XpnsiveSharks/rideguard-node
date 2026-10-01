@@ -2,11 +2,15 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
+  UnauthorizedException,
   UnprocessableEntityException,
 } from '@nestjs/common';
+import { timingSafeEqual } from 'node:crypto';
 import { Device, DeviceType } from './domain/device.entity';
 import { DeviceRepository } from './infrastructure/devices.repository';
 import { DeviceId } from './domain/device-id.value-object';
+import { generateDeviceSecret, hashDeviceSecret } from './infrastructure/device-secret';
+import type { RegisterDeviceResult, RotateDeviceSecretResult } from './devices.types';
 import { PinoLogger } from 'nestjs-pino';
 import {
   DEVICE_EVENTS,
@@ -21,11 +25,41 @@ export class DevicesService {
     private readonly logger: PinoLogger,
   ) {}
 
+  async verifyDeviceCredentials(deviceId: string, secret: string): Promise<Device> {
+    if (!secret?.trim()) {
+      throw new UnauthorizedException('Invalid device credentials');
+    }
+
+    let normalizedDeviceId: string;
+    try {
+      normalizedDeviceId = DeviceId.create(deviceId).toString();
+    } catch {
+      throw new UnauthorizedException('Invalid device credentials');
+    }
+
+    // Keep database failures separate from authentication failures.
+    const device = await this.deviceRepository.findDeviceById(normalizedDeviceId);
+    const storedHash = device?.getDeviceSecretHash();
+    if (!device || typeof storedHash !== 'string' || !/^[a-f0-9]{64}$/.test(storedHash)) {
+      throw new UnauthorizedException('Invalid device credentials');
+    }
+
+    const suppliedHash = Buffer.from(hashDeviceSecret(secret), 'hex');
+    if (!timingSafeEqual(suppliedHash, Buffer.from(storedHash, 'hex'))) {
+      throw new UnauthorizedException('Invalid device credentials');
+    }
+
+    return device;
+  }
+
   // *** REGISTER NEW HARDWARE DEVICE - ADMIN ***
-  async registerDevice(deviceType: DeviceType): Promise<string> {
+  async registerDevice(deviceType: DeviceType): Promise<RegisterDeviceResult> {
+    const deviceSecret = generateDeviceSecret();
+    const deviceSecretHash = hashDeviceSecret(deviceSecret);
+
     // Generated IDs can collide, so regenerate until we find a free one.
     for (let attempt = 1; attempt <= MAX_DEVICE_ID_GENERATION_ATTEMPTS; attempt++) {
-      const device = Device.create(deviceType);
+      const device = Device.create(deviceType, deviceSecretHash);
       const deviceId = device.getDeviceId();
 
       const existingDevice = await this.deviceRepository.findDeviceById(deviceId);
@@ -40,12 +74,32 @@ export class DevicesService {
         DEVICE_MESSAGES.DEVICE_CREATED_MESSAGE(deviceId),
       );
 
-      return deviceId;
+      return { deviceId, deviceSecret };
     }
 
     throw new ConflictException(
       'Could not generate a unique device ID. Please try registering again.',
     );
+  }
+
+  // *** ROTATE DEVICE SECRET - ADMIN / MANUFACTURING ***
+  async rotateDeviceSecret(deviceId: string): Promise<RotateDeviceSecretResult> {
+    DeviceId.isEmpty(deviceId);
+
+    // Only the hash is persisted; the raw secret stays in memory and is returned
+    // once after the update succeeds. It is never stored or logged.
+    const deviceSecret = generateDeviceSecret();
+    const deviceSecretHash = hashDeviceSecret(deviceSecret);
+
+    // Throws NotFoundException when the device does not exist; never creates one.
+    await this.deviceRepository.rotateSecret(deviceId, deviceSecretHash);
+
+    this.logger.info(
+      { event: DEVICE_EVENTS.DEVICE_SECRET_ROTATED },
+      DEVICE_MESSAGES.DEVICE_SECRET_ROTATED_MESSAGE(deviceId),
+    );
+
+    return { deviceId, deviceSecret };
   }
 
   // *** ASSIGN DEVICE TO USER - USER ***
@@ -100,9 +154,6 @@ export class DevicesService {
   }
 
   // *** GET OWNER ID BY DEVICE ID (NON-THROWING) ***
-  // Returns the assigned user ID, or null when the device has no owner. Unlike
-  // findAssignedUserByDeviceId, this does not throw, so callers such as alert push
-  // delivery can simply skip when a device is unclaimed.
   async findOwnerIdByDeviceId(deviceId: string): Promise<string | null> {
     DeviceId.isEmpty(deviceId);
 
