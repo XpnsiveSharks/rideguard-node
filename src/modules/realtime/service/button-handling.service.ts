@@ -1,14 +1,20 @@
 import { Injectable } from '@nestjs/common';
 import { PinoLogger } from 'nestjs-pino';
-import { ButtonEventData } from '../button-event';
+import type { ButtonEventData, ButtonEventName } from '../types/button-event.types';
 
 @Injectable()
 export class ButtonHandlingService {
   constructor(private readonly logger: PinoLogger) {}
 
-  handleEvent(name: string, event: ButtonEventData): Promise<void> {
-    // Add ownership checks and durable event_id deduplication before business side effects.
-    this.logger.info({ name, ...event }, 'Button event received');
+  // Handles a validated button event. The subscriber already picked the schema
+  // by event name and validated the payload, so this is where button business
+  // logic (capture, SOS lifecycle, alerts) will be added.
+  handleEvent(eventName: ButtonEventName, data: ButtonEventData): Promise<void> {
+    this.logger.info(
+      { event: eventName, deviceId: data.device_id, eventId: data.event_id },
+      `Received button event ${eventName} from ${data.device_id}`,
+    );
+
     return Promise.resolve();
   }
 }

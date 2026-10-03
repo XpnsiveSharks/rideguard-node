@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { InferenceResult } from '../realtime-result';
+import { InferenceResult } from '../types/inference-result';
 import { AlertFields } from '@/modules/alerts/domain/alerts.entity';
 import { DeviceId } from '@/modules/devices/domain/device-id.value-object';
 import { AlertsService } from '@/modules/alerts/alerts.service';
