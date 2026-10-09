@@ -153,6 +153,21 @@ export class DevicesService {
     return await this.deviceRepository.findDeviceIdsByAssignedUser(assignedUserId);
   }
 
+  // *** GET CAMERAS PAIRED WITH A BUTTON (NON-THROWING) - SERVICE ***
+  // Button and camera are linked only through their shared owner. An unknown or
+  // unclaimed button has no owner and therefore no cameras.
+  async findPairedCameraIds(buttonId: string): Promise<string[]> {
+    DeviceId.isEmpty(buttonId);
+
+    const ownerId = await this.deviceRepository.findAssignedUserIdByDeviceId(buttonId);
+
+    if (!ownerId) {
+      return [];
+    }
+
+    return await this.deviceRepository.findCameraIdsByAssignedUser(ownerId);
+  }
+
   // *** GET OWNER ID BY DEVICE ID (NON-THROWING) ***
   async findOwnerIdByDeviceId(deviceId: string): Promise<string | null> {
     DeviceId.isEmpty(deviceId);

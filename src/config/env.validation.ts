@@ -15,6 +15,7 @@ export interface EnvironmentVariables {
   ABLY_API_KEY: string;
   DEVICE_ABLY_ISSUER_API_KEY: string;
   UPSTREAM_ABLY_API_KEY: string;
+  DEVICE_RESOLVER_SERVICE_KEY: string;
   THROTTLE_TTL: number;
   THROTTLE_LIMIT: number;
 }
@@ -56,6 +57,10 @@ export const envValidationSchema = Joi.object<EnvironmentVariables, true>({
     .required()
     .pattern(ABLY_API_KEY_PATTERN)
     .message('DEVICE_ABLY_ISSUER_API_KEY must look like appId.keyId:keySecret'),
+
+  // Shared secret the model-api sends as X-Service-Key to resolve a button's
+  // cameras. Not an Ably key, so it has no key-shape pattern.
+  DEVICE_RESOLVER_SERVICE_KEY: Joi.string().required().min(16),
 
   THROTTLE_TTL: Joi.number().integer().positive().default(60000), // Default length in milliseconds
   THROTTLE_LIMIT: Joi.number().integer().positive().default(100), // Default max requests a single client gets within that window.

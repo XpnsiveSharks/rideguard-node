@@ -1,7 +1,7 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { Firestore } from 'firebase-admin/firestore';
 import { FIREBASE_FIRESTORE, NOT_FOUND_ERROR_CODE } from '@/infra/firebase/firebase.constants';
-import { Device, DeviceFields } from '../domain/device.entity';
+import { Device, DeviceFields, DeviceType } from '../domain/device.entity';
 import { DeviceMapper, DEVICES_COLLECTION } from './devices.mapper';
 import { FieldValue } from 'firebase-admin/firestore';
 
@@ -108,6 +108,16 @@ export class DeviceRepository {
     const querySnapshot = await this.firestore
       .collection(DEVICES_COLLECTION)
       .where('assignedUserId', '==', assignedUserId)
+      .get();
+
+    return querySnapshot.docs.map((doc) => doc.id);
+  }
+
+  async findCameraIdsByAssignedUser(assignedUserId: string): Promise<string[]> {
+    const querySnapshot = await this.firestore
+      .collection(DEVICES_COLLECTION)
+      .where('assignedUserId', '==', assignedUserId)
+      .where('deviceType', '==', DeviceType.CAMERA)
       .get();
 
     return querySnapshot.docs.map((doc) => doc.id);

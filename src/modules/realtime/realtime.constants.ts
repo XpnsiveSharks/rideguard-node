@@ -8,10 +8,17 @@ export const REALTIME_CHANNELS = {
     `rideguard:alerts:user:${encodeURIComponent(userId)}:device:*`,
 
   inferenceResults: 'rideguard-inference-results',
+
+  captureImages: 'rideguard-capture-images',
 } as const;
 
 export const INFERENCE_EVENT_NAME = {
   inferenceResult: 'inference.result',
+} as const;
+
+export const CAPTURE_EVENT_NAME = {
+  captureImage: 'capture.image',
+  captureSkipped: 'capture.skipped',
 } as const;
 
 export const BUTTON_EVENT_NAMES = [

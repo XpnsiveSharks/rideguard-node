@@ -1,11 +1,12 @@
 import { Controller, Header, Headers, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { DevicesService } from './devices.service';
-import { Post, Body, Patch, Param, Req, Res } from '@nestjs/common';
+import { Get, Post, Body, Patch, Param, Req, Res } from '@nestjs/common';
 import { DeviceRegistrationDto } from './devices.dto';
 import type { Request, Response } from 'express';
 import { Public } from '@/common/decorators/public.decorator';
 import { Roles } from '@/common/decorators/roles.decorator';
 import { RolesGuard } from '@/common/guards/roles.guard';
+import { ServiceKeyGuard } from '@/common/guards/service-key.guard';
 import type {
   DevicePublisherTokenResult,
   RegisterDeviceResult,
@@ -64,6 +65,19 @@ export class DevicesController {
   @Patch('activate-device/:device_id')
   activateDevice(@Param('device_id') deviceId: string) {
     return this.devicesService.activateDevice(deviceId);
+  }
+
+  // SERVICE ROUTE (model-api)
+  // route: GET /devices/:device_id/cameras
+  // Resolves the cameras paired with a button for a START_CAPTURE. Returns an
+  // empty list when the button has no owner or the owner has no camera.
+  @Public()
+  @UseGuards(ServiceKeyGuard)
+  @Get(':device_id/cameras')
+  async getPairedCameras(@Param('device_id') deviceId: string): Promise<{ camera_ids: string[] }> {
+    const cameraIds = await this.devicesService.findPairedCameraIds(deviceId);
+
+    return { camera_ids: cameraIds };
   }
 
   // HARDWARE ROUTE
