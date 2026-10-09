@@ -82,7 +82,12 @@ export class Device {
   // changes with the board's IP, so each report overwrites the last one and
   // refreshes lastSeenAt, which the online check reads.
   reportStreamUrl(streamUrl: string): Device {
-    if (this.fields.deviceType !== DeviceType.CAMERA) {
+    // deviceType is stored inconsistently ("Camera" vs "camera"), so compare
+    // case-insensitively instead of against the exact enum value.
+    const isCamera =
+      typeof this.fields.deviceType === 'string' &&
+      this.fields.deviceType.toLowerCase() === DeviceType.CAMERA;
+    if (!isCamera) {
       throw new BadRequestException('Only cameras can report a stream URL');
     }
 
