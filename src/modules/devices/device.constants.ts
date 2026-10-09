@@ -1,5 +1,9 @@
 export const MAX_DEVICE_ID_GENERATION_ATTEMPTS = 5;
 
+// Canonical prefix for camera device IDs (e.g. CAM-793-MAU). Used to identify
+// cameras reliably, since the stored deviceType field is inconsistent.
+export const CAMERA_ID_PREFIX = 'CAM-';
+
 // A camera counts as online if it reported its stream URL within this window.
 // The board must report at least this often (on connect, on IP change, and as
 // a heartbeat) for the online flag to stay accurate.
