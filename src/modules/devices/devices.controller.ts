@@ -1,13 +1,14 @@
 import { Controller, Header, Headers, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
 import { DevicesService } from './devices.service';
 import { Get, Post, Body, Patch, Param, Req, Res } from '@nestjs/common';
-import { DeviceRegistrationDto } from './devices.dto';
+import { DeviceRegistrationDto, ReportStreamUrlDto } from './devices.dto';
 import type { Request, Response } from 'express';
 import { Public } from '@/common/decorators/public.decorator';
 import { Roles } from '@/common/decorators/roles.decorator';
 import { RolesGuard } from '@/common/guards/roles.guard';
 import { ServiceKeyGuard } from '@/common/guards/service-key.guard';
 import type {
+  CameraView,
   DevicePublisherTokenResult,
   RegisterDeviceResult,
   RotateDeviceSecretResult,
@@ -65,6 +66,27 @@ export class DevicesController {
   @Patch('activate-device/:device_id')
   activateDevice(@Param('device_id') deviceId: string) {
     return this.devicesService.activateDevice(deviceId);
+  }
+
+  // HARDWARE ROUTE
+  // route: PATCH /devices/:device_id/stream-url
+  // The camera reports the URL its MJPEG stream is reachable at, and reports
+  // again whenever its IP changes.
+  @Public()
+  @Patch(':device_id/stream-url')
+  reportStreamUrl(
+    @Param('device_id') deviceId: string,
+    @Body() body: ReportStreamUrlDto,
+  ): Promise<void> {
+    return this.devicesService.reportStreamUrl(deviceId, body.stream_url);
+  }
+
+  // MOBILE ROUTE
+  // route: GET /devices/cameras
+  // Returns the logged-in user's cameras with their current stream URLs.
+  @Get('cameras')
+  listMyCameras(@Req() req: Request): Promise<CameraView[]> {
+    return this.devicesService.findCamerasForUser(req.user?.uid);
   }
 
   // SERVICE ROUTE (model-api)

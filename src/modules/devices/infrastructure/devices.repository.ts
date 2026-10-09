@@ -70,6 +70,30 @@ export class DeviceRepository {
     });
   }
 
+  async updateStreamUrl(deviceId: string, streamUrl: string): Promise<Device> {
+    const reference = this.firestore.collection(DEVICES_COLLECTION).doc(deviceId);
+
+    return this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+
+      if (!snapshot.exists) {
+        throw new NotFoundException(`Incorrect device ID: ${deviceId}`);
+      }
+
+      const device = DeviceMapper.toDomain(snapshot.data() as DeviceFields);
+
+      const updatedDevice = device.reportStreamUrl(streamUrl);
+
+      transaction.update(reference, {
+        streamUrl: updatedDevice.getStreamUrl(),
+        lastSeenAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return updatedDevice;
+    });
+  }
+
   async rotateSecret(deviceId: string, deviceSecretHash: string): Promise<void> {
     try {
       await this.firestore.collection(DEVICES_COLLECTION).doc(deviceId).update({
@@ -121,5 +145,15 @@ export class DeviceRepository {
       .get();
 
     return querySnapshot.docs.map((doc) => doc.id);
+  }
+
+  async findCamerasByAssignedUser(assignedUserId: string): Promise<Device[]> {
+    const querySnapshot = await this.firestore
+      .collection(DEVICES_COLLECTION)
+      .where('assignedUserId', '==', assignedUserId)
+      .where('deviceType', '==', DeviceType.CAMERA)
+      .get();
+
+    return querySnapshot.docs.map((doc) => DeviceMapper.toDomain(doc.data() as DeviceFields));
   }
 }

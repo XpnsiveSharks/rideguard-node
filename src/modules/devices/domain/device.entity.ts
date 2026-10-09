@@ -17,6 +17,8 @@ export type DeviceFields = {
   status: DeviceStatus;
   assignedUserId?: string;
   deviceSecretHash?: string;
+  streamUrl?: string;
+  lastSeenAt?: Date;
   createdAt?: Date;
   updatedAt?: Date;
 };
@@ -76,6 +78,27 @@ export class Device {
     });
   }
 
+  // The camera reports the URL its MJPEG stream is reachable at. The URL
+  // changes with the board's IP, so each report overwrites the last one and
+  // refreshes lastSeenAt, which the online check reads.
+  reportStreamUrl(streamUrl: string): Device {
+    if (this.fields.deviceType !== DeviceType.CAMERA) {
+      throw new BadRequestException('Only cameras can report a stream URL');
+    }
+
+    const normalizedUrl = streamUrl?.trim();
+    if (!normalizedUrl) {
+      throw new BadRequestException('Stream URL is required');
+    }
+
+    return new Device({
+      ...this.fields,
+      streamUrl: normalizedUrl,
+      lastSeenAt: new Date(),
+      updatedAt: new Date(),
+    });
+  }
+
   getDeviceId(): string {
     return this.fields.deviceId;
   }
@@ -94,5 +117,13 @@ export class Device {
 
   getDeviceSecretHash(): string | undefined {
     return this.fields.deviceSecretHash;
+  }
+
+  getStreamUrl(): string | undefined {
+    return this.fields.streamUrl;
+  }
+
+  getLastSeenAt(): Date | undefined {
+    return this.fields.lastSeenAt;
   }
 }

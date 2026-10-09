@@ -13,10 +13,12 @@ import { generateDeviceSecret, hashDeviceSecret } from './infrastructure/device-
 import type { RegisterDeviceResult, RotateDeviceSecretResult } from './devices.types';
 import { PinoLogger } from 'nestjs-pino';
 import {
+  CAMERA_ONLINE_WINDOW_MS,
   DEVICE_EVENTS,
   DEVICE_MESSAGES,
   MAX_DEVICE_ID_GENERATION_ATTEMPTS,
 } from './device.constants';
+import type { CameraView } from './devices.types';
 
 @Injectable()
 export class DevicesService {
@@ -133,6 +135,48 @@ export class DevicesService {
       { event: DEVICE_EVENTS.DEVICE_ACTIVATED },
       DEVICE_MESSAGES.DEVICE_ACTIVATED_MESSAGE(activatedDevice.getDeviceId()),
     );
+  }
+
+  // *** REPORT STREAM URL - HARDWARE ***
+  // The camera calls this on connect and whenever its IP changes, so the stored
+  // URL always points at the board's current address.
+  async reportStreamUrl(deviceId: string, streamUrl: string): Promise<void> {
+    DeviceId.isEmpty(deviceId);
+
+    const updatedDevice = await this.deviceRepository.updateStreamUrl(deviceId, streamUrl);
+
+    this.logger.info(
+      { event: DEVICE_EVENTS.DEVICE_STREAM_URL_REPORTED },
+      DEVICE_MESSAGES.DEVICE_STREAM_URL_REPORTED_MESSAGE(updatedDevice.getDeviceId()),
+    );
+  }
+
+  // *** LIST CAMERAS FOR THE LOGGED-IN USER - MOBILE ***
+  // Returns each camera with its current stream URL so the app can render one
+  // player per camera.
+  async findCamerasForUser(userId: string | undefined): Promise<CameraView[]> {
+    const normalizedUserId = userId?.trim();
+
+    if (!normalizedUserId) {
+      throw new UnprocessableEntityException(
+        'We could not verify your account. Please log in again.',
+      );
+    }
+
+    const cameras = await this.deviceRepository.findCamerasByAssignedUser(normalizedUserId);
+    const now = Date.now();
+
+    return cameras.map((camera) => {
+      const lastSeenAt = camera.getLastSeenAt();
+      const online = lastSeenAt ? now - lastSeenAt.getTime() <= CAMERA_ONLINE_WINDOW_MS : false;
+
+      return {
+        device_id: camera.getDeviceId(),
+        stream_url: camera.getStreamUrl() ?? null,
+        online,
+        last_seen_at: lastSeenAt ? lastSeenAt.toISOString() : null,
+      };
+    });
   }
 
   // *** GET ASSIGNED USER ID BY DEVICE ID - USER ***
