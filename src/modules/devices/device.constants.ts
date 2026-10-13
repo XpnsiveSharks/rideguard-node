@@ -25,3 +25,15 @@ export const DEVICE_MESSAGES = {
   DEVICE_STREAM_URL_REPORTED_MESSAGE: (deviceId: string) =>
     `Device reported stream URL for ID: ${deviceId}`,
 } as const;
+
+// Phone cameras. A session never runs longer than the max duration; the token
+// stays valid for a short grace after it so a slow start does not cut the last
+// frames. Presence comes from model-api heartbeats, not stream URL reports.
+export const PHONE_SESSION_GRACE_MS = 30_000;
+export const PHONE_PRESENCE_TIMEOUT_MS = 45_000;
+
+export const PHONE_EVENTS = {
+  PHONE_CAMERA_REGISTERED: 'device.phone.registered',
+  PHONE_SESSION_STARTED: 'device.phone.session.started',
+  PHONE_SESSION_ENDED: 'device.phone.session.ended',
+} as const;

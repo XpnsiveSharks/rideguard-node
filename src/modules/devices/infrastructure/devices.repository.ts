@@ -1,7 +1,7 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { Firestore } from 'firebase-admin/firestore';
 import { FIREBASE_FIRESTORE, NOT_FOUND_ERROR_CODE } from '@/infra/firebase/firebase.constants';
-import { Device, DeviceFields } from '../domain/device.entity';
+import { Device, DeviceFields, DeviceSource } from '../domain/device.entity';
 import { DeviceMapper, DEVICES_COLLECTION } from './devices.mapper';
 import { FieldValue } from 'firebase-admin/firestore';
 import { CAMERA_ID_PREFIX } from '../device.constants';
@@ -147,7 +147,10 @@ export class DeviceRepository {
       .get();
 
     return querySnapshot.docs
-      .filter((doc) => doc.id.startsWith(CAMERA_ID_PREFIX))
+      .filter(
+        (doc) =>
+          doc.id.startsWith(CAMERA_ID_PREFIX) && doc.get('source') !== DeviceSource.PHONE,
+      )
       .map((doc) => doc.id);
   }
 
