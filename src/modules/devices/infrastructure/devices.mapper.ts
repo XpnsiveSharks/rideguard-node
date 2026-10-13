@@ -25,6 +25,14 @@ export class DeviceMapper {
       deviceSecretHash: device.getDeviceSecretHash(),
       streamUrl: device.getStreamUrl(),
       lastSeenAt: device.getLastSeenAt(),
+      source: device.getSource(),
+      // Session fields only mean something for phone cameras.
+      ...(device.isPhone() && {
+        installationId: device.getInstallationId(),
+        activeSessionId: device.getActiveSessionId(),
+        sessionExpiresAt: device.getSessionExpiresAt(),
+        connected: device.isConnected(),
+      }),
     };
   }
 
@@ -37,6 +45,11 @@ export class DeviceMapper {
       deviceSecretHash: document.deviceSecretHash,
       streamUrl: document.streamUrl,
       lastSeenAt: toDate(document.lastSeenAt),
+      source: document.source,
+      installationId: document.installationId,
+      activeSessionId: document.activeSessionId ?? null,
+      sessionExpiresAt: toDate(document.sessionExpiresAt) ?? null,
+      connected: document.connected,
       createdAt: toDate(document.createdAt),
       updatedAt: toDate(document.updatedAt),
     });

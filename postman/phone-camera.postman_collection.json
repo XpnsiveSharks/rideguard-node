@@ -1,0 +1,717 @@
+{
+  "info": {
+    "name": "RideGuard phone camera",
+    "description": "Phone camera registration, sessions, token verify, and presence. Run against a non-production Node with: postman collection run postman/phone-camera.postman_collection.json --env-var baseUrl=http://localhost:5565/v1 --env-var firebaseToken=<id token> --env-var serviceKey=<DEVICE_RESOLVER_SERVICE_KEY> --env-var installationId=<uuid>. Optional: otherFirebaseToken for the cross-account check. Writes to Firestore.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5565/v1"
+    },
+    {
+      "key": "firebaseToken",
+      "value": ""
+    },
+    {
+      "key": "otherFirebaseToken",
+      "value": ""
+    },
+    {
+      "key": "serviceKey",
+      "value": ""
+    },
+    {
+      "key": "installationId",
+      "value": "postman-install-0001"
+    },
+    {
+      "key": "phoneDeviceId",
+      "value": ""
+    },
+    {
+      "key": "sessionId",
+      "value": ""
+    },
+    {
+      "key": "uploadToken",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Register phone camera",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{firebaseToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/devices/phone",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "devices",
+            "phone"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"installation_id\": \"{{installationId}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "const data = pm.response.json().data;",
+              "pm.test('CAM id, phone source', () => { pm.expect(data.device_id).to.match(/^CAM-\\d{3}-[A-Z]{3}$/); pm.expect(data.source).to.eql('phone'); });",
+              "pm.collectionVariables.set('phoneDeviceId', data.device_id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Register again returns the same camera",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{firebaseToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/devices/phone",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "devices",
+            "phone"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"installation_id\": \"{{installationId}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "const data = pm.response.json().data;",
+              "pm.test('same device, not created', () => { pm.expect(data.device_id).to.eql(pm.collectionVariables.get('phoneDeviceId')); pm.expect(data.created).to.eql(false); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Phone camera is listed with source",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{firebaseToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/devices/cameras",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "devices",
+            "cameras"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "const phone = pm.response.json().data.find(c => c.device_id === pm.collectionVariables.get('phoneDeviceId'));",
+              "pm.test('listed as phone, offline', () => { pm.expect(phone.source).to.eql('phone'); pm.expect(phone.online).to.eql(false); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Start session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{firebaseToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/devices/phone/{{phoneDeviceId}}/sessions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "devices",
+            "phone",
+            "{{phoneDeviceId}}",
+            "sessions"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"duration_ms\": 600000\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201', () => pm.response.to.have.status(201));",
+              "pm.test('no-store', () => pm.expect(pm.response.headers.get('Cache-Control')).to.include('no-store'));",
+              "const data = pm.response.json().data;",
+              "pm.test('token is session.secret', () => pm.expect(data.upload_token.startsWith(data.session_id + '.')).to.be.true);",
+              "pm.collectionVariables.set('sessionId', data.session_id);",
+              "pm.collectionVariables.set('uploadToken', data.upload_token);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Duration above max is rejected",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{firebaseToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/devices/phone/{{phoneDeviceId}}/sessions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "devices",
+            "phone",
+            "{{phoneDeviceId}}",
+            "sessions"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"duration_ms\": 600001\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('422', () => pm.response.to.have.status(422));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Another account cannot start a session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{otherFirebaseToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/devices/phone/{{phoneDeviceId}}/sessions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "devices",
+            "phone",
+            "{{phoneDeviceId}}",
+            "sessions"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"duration_ms\": 600000\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (!pm.collectionVariables.get('otherFirebaseToken') && !pm.environment.get('otherFirebaseToken')) { pm.test.skip('set otherFirebaseToken to run', () => {}); return; }",
+              "pm.test('403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Service verifies the upload token",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Service-Key",
+            "value": "{{serviceKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/devices/phone/sessions/verify",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "devices",
+            "phone",
+            "sessions",
+            "verify"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"upload_token\": \"{{uploadToken}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "pm.test('maps to the phone camera', () => pm.expect(pm.response.json().data.device_id).to.eql(pm.collectionVariables.get('phoneDeviceId')));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "A wrong token is rejected",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Service-Key",
+            "value": "{{serviceKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/devices/phone/sessions/verify",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "devices",
+            "phone",
+            "sessions",
+            "verify"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"upload_token\": \"{{sessionId}}.wrong\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Verify without service key is rejected",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/devices/phone/sessions/verify",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "devices",
+            "phone",
+            "sessions",
+            "verify"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"upload_token\": \"{{uploadToken}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Presence marks the phone online",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Service-Key",
+            "value": "{{serviceKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/devices/phone/sessions/{{sessionId}}/presence",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "devices",
+            "phone",
+            "sessions",
+            "{{sessionId}}",
+            "presence"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"connected\": true\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('204', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Phone is online while connected",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{firebaseToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/devices/cameras",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "devices",
+            "cameras"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const phone = pm.response.json().data.find(c => c.device_id === pm.collectionVariables.get('phoneDeviceId'));",
+              "pm.test('online', () => pm.expect(phone.online).to.eql(true));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "End session",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{firebaseToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/devices/phone/{{phoneDeviceId}}/sessions/{{sessionId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "devices",
+            "phone",
+            "{{phoneDeviceId}}",
+            "sessions",
+            "{{sessionId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('204', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "End session again is idempotent",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{firebaseToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/devices/phone/{{phoneDeviceId}}/sessions/{{sessionId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "devices",
+            "phone",
+            "{{phoneDeviceId}}",
+            "sessions",
+            "{{sessionId}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('204', () => pm.response.to.have.status(204));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Ended token is rejected",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Service-Key",
+            "value": "{{serviceKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/devices/phone/sessions/verify",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "devices",
+            "phone",
+            "sessions",
+            "verify"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"upload_token\": \"{{uploadToken}}\"\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Presence after end tells model-api to close",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Service-Key",
+            "value": "{{serviceKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/devices/phone/sessions/{{sessionId}}/presence",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "devices",
+            "phone",
+            "sessions",
+            "{{sessionId}}",
+            "presence"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"connected\": true\n}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('401', () => pm.response.to.have.status(401));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Phone is offline after stop",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{firebaseToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/devices/cameras",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "devices",
+            "cameras"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const phone = pm.response.json().data.find(c => c.device_id === pm.collectionVariables.get('phoneDeviceId'));",
+              "pm.test('offline', () => pm.expect(phone.online).to.eql(false));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

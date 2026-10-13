@@ -20,19 +20,22 @@ export class InferenceHandlingService {
     // NOTE: add idempotency for event id
 
     const alert = this.prepareInferenceResult(result);
-    const deviceId = alert.deviceId;
 
-    if (alert.message) {
-      const newAlert = await this.alertsService.createAlert(alert);
-
-      const assignedUserId = await this.deviceService.findAssignedUserByDeviceId(deviceId);
-      const channelName = REALTIME_CHANNELS.alerts(assignedUserId, deviceId);
-
-      await this.realtimePublisherService.publishAlert(channelName, newAlert);
+    // model-api publishes threats only, but a result with no threat must never
+    // become an alert. Continuous phone capture would otherwise flood users.
+    if (!alert) {
+      return;
     }
+
+    const newAlert = await this.alertsService.createAlert(alert);
+
+    const assignedUserId = await this.deviceService.findAssignedUserByDeviceId(alert.deviceId);
+    const channelName = REALTIME_CHANNELS.alerts(assignedUserId, alert.deviceId);
+
+    await this.realtimePublisherService.publishAlert(channelName, newAlert);
   }
 
-  private prepareInferenceResult(result: InferenceResult): AlertFields {
+  private prepareInferenceResult(result: InferenceResult): AlertFields | null {
     const { device_id, captured_at, detections, violence, image } = result;
 
     const imageUrl = image?.url ?? null;
@@ -42,6 +45,11 @@ export class InferenceHandlingService {
     const hasFreshViolence = violence?.label === 'violent' && violence?.inference_ran === true;
     const alertMessage = this.buildAlertMessage(hasWeapon, hasFreshViolence);
     this.logger.info(detections.objects, 'Detected objects');
+
+    if (!alertMessage) {
+      return null;
+    }
+
     return {
       deviceId: deviceId,
       message: alertMessage,
@@ -52,7 +60,7 @@ export class InferenceHandlingService {
     };
   }
 
-  private buildAlertMessage(hasWeapon: boolean, hasFreshViolence: boolean): string {
+  private buildAlertMessage(hasWeapon: boolean, hasFreshViolence: boolean): string | null {
     if (hasWeapon && hasFreshViolence) {
       return `Violence and weapon detected`;
     }
@@ -62,6 +70,6 @@ export class InferenceHandlingService {
     if (hasFreshViolence) {
       return `Violence detected`;
     }
-    return `Nothing was detected here`;
+    return null;
   }
 }

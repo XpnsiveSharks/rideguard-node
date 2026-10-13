@@ -17,6 +17,7 @@ import {
   DEVICE_EVENTS,
   DEVICE_MESSAGES,
   MAX_DEVICE_ID_GENERATION_ATTEMPTS,
+  PHONE_PRESENCE_TIMEOUT_MS,
 } from './device.constants';
 import type { CameraView } from './devices.types';
 
@@ -168,15 +169,36 @@ export class DevicesService {
 
     return cameras.map((camera) => {
       const lastSeenAt = camera.getLastSeenAt();
-      const online = lastSeenAt ? now - lastSeenAt.getTime() <= CAMERA_ONLINE_WINDOW_MS : false;
+      const online = camera.isPhone()
+        ? this.isPhoneOnline(camera, now)
+        : lastSeenAt
+          ? now - lastSeenAt.getTime() <= CAMERA_ONLINE_WINDOW_MS
+          : false;
 
       return {
         device_id: camera.getDeviceId(),
+        source: camera.getSource(),
         stream_url: camera.getStreamUrl() ?? null,
         online,
         last_seen_at: lastSeenAt ? lastSeenAt.toISOString() : null,
       };
     });
+  }
+
+  // A phone is online while its session is active, model-api reports it
+  // connected, and the last heartbeat is recent.
+  private isPhoneOnline(camera: Device, now: number): boolean {
+    const lastSeenAt = camera.getLastSeenAt();
+    const expiresAt = camera.getSessionExpiresAt();
+
+    return (
+      camera.isConnected() &&
+      camera.getActiveSessionId() !== null &&
+      expiresAt !== null &&
+      expiresAt.getTime() > now &&
+      lastSeenAt !== undefined &&
+      now - lastSeenAt.getTime() <= PHONE_PRESENCE_TIMEOUT_MS
+    );
   }
 
   // *** GET ASSIGNED USER ID BY DEVICE ID - USER ***
@@ -199,7 +221,8 @@ export class DevicesService {
 
   // *** GET CAMERAS PAIRED WITH A BUTTON (NON-THROWING) - SERVICE ***
   // Button and camera are linked only through their shared owner. An unknown or
-  // unclaimed button has no owner and therefore no cameras.
+  // unclaimed button has no owner and therefore no cameras. Phone cameras are
+  // left out: button capture is an ESP32 feature.
   async findPairedCameraIds(buttonId: string): Promise<string[]> {
     DeviceId.isEmpty(buttonId);
 

@@ -24,6 +24,11 @@ http://localhost:5565/v1
 | `GET` | `/v1/devices/cameras` | Mobile app | Firebase ID token | List the user's cameras. |
 | `GET` | `/v1/devices/:device_id/cameras` | model-api | Service key | List cameras paired with a button. |
 | `POST` | `/v1/devices/button-event/:device_id/:button_event` | Hardware device | **Public** | Receive a button event. |
+| `POST` | `/v1/devices/phone` | Mobile app | Firebase ID token | Create or return this installation's phone camera. |
+| `POST` | `/v1/devices/phone/:device_id/sessions` | Mobile app | Firebase ID token | Start a phone upload session. |
+| `DELETE` | `/v1/devices/phone/:device_id/sessions/:session_id` | Mobile app | Firebase ID token | End a phone upload session. |
+| `POST` | `/v1/devices/phone/sessions/verify` | model-api | Service key | Check a phone upload token. |
+| `POST` | `/v1/devices/phone/sessions/:session_id/presence` | model-api | Service key | Report phone stream presence. |
 
 ## Consumers
 
@@ -383,12 +388,15 @@ Only cameras can report a stream URL. The server updates `last_seen_at`.
 ### GET /v1/devices/cameras
 
 Returns the signed-in user's cameras. Each item includes `device_id`,
-`stream_url`, `online`, and `last_seen_at`.
+`source` (`esp32` or `phone`), `stream_url`, `online`, and `last_seen_at`.
+Phone cameras are online only while a session is active and model-api has
+reported the stream within 45 seconds.
 
 ### GET /v1/devices/:device_id/cameras
 
 Used by model-api. Send the shared `X-Service-Key` header. Returns an empty list
-when the button has no owner or the owner has no cameras.
+when the button has no owner or the owner has no cameras. Phone cameras are
+never returned, so button capture stays an ESP32 feature.
 
 ```json
 {
@@ -399,3 +407,109 @@ when the button has no owner or the owner has no cameras.
 ### POST /v1/devices/button-event/:device_id/:button_event
 
 Public hardware route for receiving a button event.
+
+## Phone Camera Routes
+
+Phone cameras are normal `CAM-` devices with `source: "phone"`. The app never
+picks an ID and needs no admin role. They have no hardware secret: uploads use a
+short-lived session token instead. Runnable checks are in
+[phone-camera.postman_collection.json](../postman/phone-camera.postman_collection.json).
+
+Firestore:
+
+| Collection | Key | Holds |
+| --- | --- | --- |
+| `devices` | device ID | `source`, `installationId`, `activeSessionId`, `sessionExpiresAt`, `connected`, `lastSeenAt` |
+| `phone-installations` | sha256 of `uid:installationId` | `deviceId`. Makes registration idempotent. |
+| `phone-sessions` | session ID | `deviceId`, `userId`, `tokenHash`, `startedAt`, `expiresAt`, `endedAt`, `endReason` |
+
+### POST /v1/devices/phone
+
+```json
+{ "installation_id": "5b0c6d0e-6c1f-4bb6-9d0c-4f1f4c1d2e3a" }
+```
+
+`installation_id` is the app's per-install UUID, 8 to 128 letters, digits, or
+dashes. Returns `200`:
+
+```json
+{ "data": { "device_id": "CAM-482-QLZ", "source": "phone", "created": true } }
+```
+
+The same user and installation always get the same camera (`created: false` on
+retries). Another user on the same installation gets a different camera.
+Reinstalling the app makes a new installation ID, so it gets a new camera.
+
+### POST /v1/devices/phone/:device_id/sessions
+
+```json
+{ "duration_ms": 600000 }
+```
+
+`duration_ms` must be at least 60000 and at most `PHONE_SESSION_MAX_DURATION_MS`
+(default 600000). Returns `201` with `Cache-Control: no-store`:
+
+```json
+{
+  "data": {
+    "session_id": "6f1c…",
+    "device_id": "CAM-482-QLZ",
+    "upload_token": "6f1c….<secret>",
+    "duration_ms": 600000,
+    "started_at": "2026-10-14T09:00:00.000Z",
+    "expires_at": "2026-10-14T09:10:30.000Z"
+  }
+}
+```
+
+The token is shown once; only its SHA-256 hash is stored. `expires_at` is the
+duration plus a 30-second grace. Starting a new session ends the previous one
+(`endReason: "superseded"`), so only the newest token can upload.
+
+| Status | When |
+| --- | --- |
+| `403` | The camera belongs to another account. |
+| `404` | Not a phone camera. |
+| `422` | `duration_ms` is above the server maximum. |
+
+### DELETE /v1/devices/phone/:device_id/sessions/:session_id
+
+Returns `204`. Idempotent. The app calls it on Stop, on automatic stop, and on
+logout. Same `403`/`404` rules as above.
+
+### POST /v1/devices/phone/sessions/verify
+
+model-api calls this when a phone opens `WS /v1/inference/phone-stream`. Send
+`X-Service-Key`. The token is in the body so it stays out of URLs and logs.
+
+```json
+{ "upload_token": "6f1c….<secret>" }
+```
+
+Returns `200` with `{ "data": { "device_id", "session_id", "expires_at" } }`.
+Returns `401` for every failure: bad token, ended or replaced session, expired
+session, or a camera that no longer belongs to the user who started it.
+
+### POST /v1/devices/phone/sessions/:session_id/presence
+
+```json
+{ "connected": true }
+```
+
+Returns `204`. model-api sends `connected: true` every 15 seconds while the
+stream is open and `connected: false` when it closes. A `401` on
+`connected: true` means the session was ended or replaced; model-api then closes
+the stream. That is how logout and a new Start revoke an open upload.
+
+### Logout, account switch, reinstall
+
+- Logout: the app stops native capture and ends the session first.
+- Account switch: the old camera still belongs to the old user. A session token
+  is bound to the user who started it, so frames cannot route to the new account.
+- Reinstall or force-stop: the old session expires on its own.
+
+### Known gap
+
+The legacy ESP32 route `WS /v1/inference/stream?device_id=` is still
+unauthenticated. Anyone who knows a phone camera's ID can send frames there.
+This change does not secure that route.
