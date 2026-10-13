@@ -20,6 +20,10 @@ http://localhost:5565/v1
 | `PATCH` | `/v1/devices/activate-device/:device_id` | Hardware device | **Public** | Mark the device as provisioned on boot.    |
 | `PATCH` | `/v1/devices/:device_id/rotate-secret` | Admin / manufacturing staff | Firebase ID token + `admin`/`manufacturing` role | Replace a device's secret without changing its ID. |
 | `POST` | `/v1/devices/:device_id/ably-token` | ESP32 button | Device secret bearer token | Issue a short-lived Ably publisher token. |
+| `PATCH` | `/v1/devices/:device_id/stream-url` | Camera device | **Public** | Save the camera stream URL. |
+| `GET` | `/v1/devices/cameras` | Mobile app | Firebase ID token | List the user's cameras. |
+| `GET` | `/v1/devices/:device_id/cameras` | model-api | Service key | List cameras paired with a button. |
+| `POST` | `/v1/devices/button-event/:device_id/:button_event` | Hardware device | **Public** | Receive a button event. |
 
 ## Consumers
 
@@ -165,8 +169,8 @@ Status `200 OK`. The handler returns no payload.
 | `422`  | The verified token did not provide a user ID.                     |
 | `429`  | Request exceeded the global throttle limit.                       |
 
-> **Note:** the route does not check whether the device is already claimed by
-> another user — a second claim overwrites `assignedUserId`.
+> **Note:** a claim by another user returns `409`. Repeating the same claim is
+> allowed.
 
 ## PATCH /v1/devices/activate-device/:device_id
 
@@ -318,8 +322,8 @@ Status `200 OK`, with `Cache-Control: no-store`:
     "clientId": "BUT-123-ABC",
     "issued": 1800000000000,
     "expires": 1800003600000,
-    "capability": "{\"rideguard:buttons:device:BUT-123-ABC\":[\"publish\"]}",
-    "channel": "rideguard:buttons:device:BUT-123-ABC"
+    "capability": "{\"rideguard:buttons:device\":[\"publish\"]}",
+    "channel": "rideguard:buttons:device"
   },
   "timestamp": "2027-01-15T08:00:00.000Z"
 }
@@ -330,8 +334,9 @@ publish channel, and `data.clientId` if it explicitly sends a client ID.
 `issued` and `expires` are Unix timestamps in milliseconds. `capability` is a
 JSON-encoded string. The response is a token, not a signed `TokenRequest`.
 
-The token lasts one hour and grants only `publish` on the device's channel.
-It does not grant subscribe, history, presence, or access to other devices.
+The token lasts one hour and grants only `publish` on the shared button
+channel. It does not grant subscribe, history, presence, or access to other
+channels.
 Renew by calling this endpoint again before expiry (for example, one minute
 early). Retry transient failures with backoff; do not request a token for
 every button press. Renewals recheck the current device secret hash.
@@ -339,7 +344,7 @@ every button press. Renewals recheck the current device secret hash.
 After secret rotation, the old secret cannot obtain new tokens. Tokens already
 issued remain valid until expiry unless separately revoked.
 
-The dedicated issuer key must permit `publish` on `rideguard:buttons:device:*`.
+The dedicated issuer key must permit `publish` on `rideguard:buttons:device`.
 Subscribers must use the same Ably app as that key. This route only issues
 credentials; receiving button events and creating alerts require a consumer.
 
@@ -360,3 +365,37 @@ These are behaviors worth confirming before the routes are treated as final:
 1. `activate-device` is fully public and takes only a device ID, so anyone who
    knows or guesses an ID can flip it to `Provisioned`. IDs are 3 digits plus
    3 letters (~17.5M combinations per prefix), guarded only by the throttler.
+
+## Other Device Routes
+
+### PATCH /v1/devices/:device_id/stream-url
+
+Public camera route. The body must contain a valid HTTP or HTTPS URL:
+
+```json
+{
+  "stream_url": "http://192.168.1.42/stream"
+}
+```
+
+Only cameras can report a stream URL. The server updates `last_seen_at`.
+
+### GET /v1/devices/cameras
+
+Returns the signed-in user's cameras. Each item includes `device_id`,
+`stream_url`, `online`, and `last_seen_at`.
+
+### GET /v1/devices/:device_id/cameras
+
+Used by model-api. Send the shared `X-Service-Key` header. Returns an empty list
+when the button has no owner or the owner has no cameras.
+
+```json
+{
+  "camera_ids": ["CAM-482-QLZ"]
+}
+```
+
+### POST /v1/devices/button-event/:device_id/:button_event
+
+Public hardware route for receiving a button event.

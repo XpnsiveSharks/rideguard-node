@@ -82,9 +82,9 @@ in one file, checked against all four triggers:
 - **Change cadence** - identical. Adding a variable touches the interface and
   the schema in the same edit.
 - **Runtime cost** - zero, verified above.
-- **Boundary** - only `main.ts` and the two infra files consume the type, all
-  as `import type`.
-- **Size** - under 30 lines.
+- **Boundary** - consumers import the shared type with `import type`, so the
+  config file is not loaded at runtime.
+- **Size** - small enough to read in one pass.
 
 The lockstep argument is the strongest one. The schema is declared as:
 

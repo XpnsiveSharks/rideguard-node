@@ -54,7 +54,7 @@ Message: `User profile retrieved successfully`
 
 ## GET /v1/auth/is-old-user
 
-Gets user account creation status, if they were a new user or a user that has already have a personal info record in our database
+Returns `true` when the user has a profile.
 
 ### Request
 
@@ -65,7 +65,7 @@ No request body.
 ```json
 {
   "success": true,
-  "message": "Request completed successfully",
+  "message": "User status retrieved successfully",
   "data": true,
   "timestamp": "2026-08-30T14:13:11.547Z"
 }
@@ -76,6 +76,18 @@ No request body.
 | Status | Reason                                      |
 | ------ | ------------------------------------------- |
 | `401`  | Missing or invalid Firebase bearer token.   |
+| `429`  | Request exceeded the global throttle limit. |
+
+## GET /v1/auth/ably-token
+
+Creates an Ably token request for the signed-in user. The request allows
+subscribe access to that user's alerts and the shared button event channel.
+
+### Errors
+
+| Status | Reason                                    |
+| ------ | ----------------------------------------- |
+| `401`  | Missing or invalid Firebase bearer token. |
 | `429`  | Request exceeded the global throttle limit. |
 
 ## POST /v1/profile/personal-info
@@ -90,8 +102,10 @@ email, and profile image URL come from the verified Firebase token.
 | `first_name`             | string | Yes      | Must be a non-empty string after trimming.                      |
 | `last_name`              | string | Yes      | Must be a non-empty string after trimming.                      |
 | `phone_number`           | string | Yes      | Must be a non-empty string after trimming.                      |
-| `vehicle`                | string | Yes      | Vehicle name; must be non-empty after trimming.                 |
+| `brand`                  | string | Yes      | Vehicle brand; must be non-empty after trimming.                |
+| `model`                  | string | Yes      | Vehicle model; must be non-empty after trimming.                |
 | `plate_number`           | string | Yes      | Vehicle plate number; must be non-empty after trimming.         |
+| `color`                  | string | Yes      | Vehicle color; must be non-empty after trimming.                |
 | `contact_name`           | string | No       | Emergency contact name.                                         |
 | `emergency_phone_number` | string | No       | Emergency contact phone number.                                 |
 | `relationship`           | string | No       | Must be one of the supported relationship values when provided. |
@@ -118,8 +132,10 @@ Example:
   "first_name": "Jane",
   "last_name": "Driver",
   "phone_number": "+15555550100",
-  "vehicle": "Honda Click 125",
+  "brand": "Honda",
+  "model": "Click 125",
   "plate_number": "ABC 1234",
+  "color": "Red",
   "contact_name": "Alex Driver",
   "emergency_phone_number": "+15555550199",
   "relationship": "Sibling"
@@ -146,7 +162,7 @@ The controller returns no payload, so the response envelope contains an empty
 | ------ | ------------------------------------------------------------------------------------------- |
 | `400`  | Request validation failed, required fields are blank, or `relationship` is unsupported.     |
 | `401`  | Missing or invalid Firebase bearer token, or the verified token does not provide a user ID. |
-| `409`  | A profile already exists for the authenticated user.                                        |
+| `422`  | A profile already exists for the authenticated user.                                        |
 | `429`  | Request exceeded the global throttle limit.                                                 |
 
 Validation error example:

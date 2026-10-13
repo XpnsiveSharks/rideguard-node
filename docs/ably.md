@@ -9,7 +9,8 @@ credential is configured, and how to confirm the integration works.
 | Piece              | Where                                               |
 | ------------------ | --------------------------------------------------- |
 | SDK                | `ably` (official Node/TS SDK), a runtime dependency |
-| Shared client      | `src/infra/ably/ably.provider.ts`                   |
+| Shared REST client | `src/infra/ably/ably-rest.provider.ts`              |
+| Realtime client    | `src/infra/ably/ably-realtime.provider.ts`          |
 | DI token           | `ABLY_REST` in `src/infra/ably/ably.constants.ts`   |
 | Module             | `AblyModule`, global, registered in `app.module.ts` |
 | Credential         | `ABLY_API_KEY`, validated at startup                |
@@ -53,10 +54,8 @@ The backend publishes; the mobile and admin clients subscribe. A stateless
 client is also the right shape for App Service, where instances are recycled
 and a long-lived socket per instance would have to be torn down on shutdown.
 
-If a service later needs to _subscribe_ from the backend, add a second token
-(`ABLY_REALTIME`) and provider beside this one rather than swapping this one
-out - `ably.constants.ts` is written to hold one token per SDK surface. A
-realtime client does need `close()` wiring in `onModuleDestroy`.
+The app already has an `ABLY_REALTIME` client. It uses
+`UPSTREAM_ABLY_API_KEY` for backend subscriptions and closes on shutdown.
 
 ## Configuration
 
@@ -106,11 +105,11 @@ as local `.env` files.
 Configure its capability in the Ably dashboard to allow:
 
 ```json
-{ "rideguard:buttons:device:*": ["publish"] }
+{ "rideguard:buttons:device": ["publish"] }
 ```
 
-The hardware endpoint requests a narrower capability for exactly one device,
-binds the token's `clientId` to the device ID, and sets a one-hour lifetime.
+The hardware endpoint binds the token's `clientId` to the device ID and sets a
+one-hour lifetime.
 It uses `auth.requestToken()` to return a usable token, so the ESP32 does not
 need to exchange a signed token request. See [hardware token requests](v1-device-routes.md#post-v1devicesdevice_idably-token).
 
