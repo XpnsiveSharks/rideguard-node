@@ -5,17 +5,25 @@ import type { DevicesService } from '@/modules/devices/devices.service';
 import type { InferenceResult } from '../types/inference-result';
 import type { RealtimePublisherService } from './realtime-publishing.service';
 import { InferenceHandlingService } from './inference-handling.service';
+import { inferenceResultSchema } from '../validations/inference-result.schema';
 
 const KNIFE = { label: 'knife', confidence: 0.8, box: { x1: 0, y1: 0, x2: 1, y2: 1 } };
 
 function result(overrides: Partial<InferenceResult> = {}): InferenceResult {
   return {
+    schema_version: 2,
     event_id: 'event-1',
     device_id: 'CAM-222-BBB',
     captured_at: '2026-10-14T00:00:00Z',
     pose: { person_count: 1 },
     detections: { objects: [] },
-    violence: { status: 'ok', label: 'non_violent', confidence: 0.9, inference_ran: true },
+    violence: {
+      status: 'ok',
+      label: 'non_violent',
+      confidence: 0.9,
+      inference_ran: true,
+      alert_eligible: false,
+    },
     image: null,
     ...overrides,
   };
@@ -49,17 +57,23 @@ function setup(outcome: unknown = { outcome: 'alert_created', alert: savedAlert 
 }
 
 describe('InferenceHandlingService', () => {
-  it('creates no alert for a result without a threat', async () => {
-    const { service, alertsService, publisher } = setup();
+  it('sends negative observations to the transaction without notifying', async () => {
+    const { service, alertsService, publisher } = setup({ outcome: 'ignored_no_threat' });
 
     await service.handleResult(result());
 
-    expect(alertsService.createInferenceAlert).not.toHaveBeenCalled();
+    expect(alertsService.createInferenceAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        weaponLabels: [],
+        hasFreshViolence: false,
+        observationVersion: 2,
+      }),
+    );
     expect(publisher.publishAlert).not.toHaveBeenCalled();
   });
 
   it('creates no alert for cached violence', async () => {
-    const { service, alertsService } = setup();
+    const { service, alertsService } = setup({ outcome: 'ignored_no_threat' });
 
     await service.handleResult(
       result({
@@ -67,7 +81,11 @@ describe('InferenceHandlingService', () => {
       }),
     );
 
-    expect(alertsService.createInferenceAlert).not.toHaveBeenCalled();
+    expect(alertsService.createInferenceAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hasFreshViolence: false,
+      }),
+    );
   });
 
   it('passes all qualifying threat types to the transaction', async () => {
@@ -76,12 +94,22 @@ describe('InferenceHandlingService', () => {
     await service.handleResult(
       result({
         detections: { objects: [KNIFE] },
-        violence: { status: 'ok', label: 'violent', confidence: 0.9, inference_ran: true },
+        violence: {
+          status: 'ok',
+          label: 'violent',
+          confidence: 0.9,
+          inference_ran: true,
+          alert_eligible: true,
+        },
       }),
     );
 
     expect(alertsService.createInferenceAlert).toHaveBeenCalledWith(
-      expect.objectContaining({ eventId: 'event-1', threats: ['weapon', 'violence'] }),
+      expect.objectContaining({
+        eventId: 'event-1',
+        weaponLabels: ['knife'],
+        hasFreshViolence: true,
+      }),
     );
   });
 
@@ -97,7 +125,13 @@ describe('InferenceHandlingService', () => {
     );
   });
 
-  it.each(['duplicate', 'suppressed_cooldown'])('does not deliver a %s event', async (kind) => {
+  it.each([
+    'duplicate',
+    'suppressed_cooldown',
+    'awaiting_confirmation',
+    'ignored_stale',
+    'awaiting_observations',
+  ])('does not deliver a %s event', async (kind) => {
     const { service, alertsService, publisher } = setup({ outcome: kind });
 
     await service.handleResult(result({ detections: { objects: [KNIFE] } }));
@@ -151,5 +185,56 @@ describe('InferenceHandlingService', () => {
     expect(alertsService.sendAlertPush).not.toHaveBeenCalled();
     expect(publisher.publishAlert).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('preserves the producer confidence gate for weak fresh violence', async () => {
+    const { service, alertsService } = setup({ outcome: 'ignored_no_threat' });
+    await service.handleResult(
+      result({
+        violence: {
+          status: 'ready',
+          label: 'violent',
+          confidence: 0.6,
+          inference_ran: true,
+          alert_eligible: false,
+        },
+      }),
+    );
+    expect(alertsService.createInferenceAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ hasFreshViolence: false }),
+    );
+  });
+
+  it('accepts legacy violence during producer rollout', async () => {
+    const { service, alertsService } = setup();
+    await service.handleResult(
+      result({
+        schema_version: undefined,
+        violence: { status: 'ready', label: 'violent', confidence: 0.9, inference_ran: true },
+      }),
+    );
+    expect(alertsService.createInferenceAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ hasFreshViolence: true }),
+    );
+  });
+});
+
+describe('versioned inference contract', () => {
+  it('accepts v2 negative observations with subsecond timestamps', () => {
+    const event = result({ captured_at: '2026-10-15T01:02:03.456789Z' });
+    expect(inferenceResultSchema.validate(event, { convert: false }).error).toBeUndefined();
+  });
+
+  it('requires the violence confidence decision for v2', () => {
+    const event = result();
+    delete event.violence.alert_eligible;
+    expect(inferenceResultSchema.validate(event).error).toBeDefined();
+  });
+
+  it('still accepts the legacy payload without version or eligibility', () => {
+    const event = result();
+    delete event.schema_version;
+    delete event.violence.alert_eligible;
+    expect(inferenceResultSchema.validate(event).error).toBeUndefined();
   });
 });
