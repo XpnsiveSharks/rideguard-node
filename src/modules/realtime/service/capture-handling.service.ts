@@ -16,7 +16,6 @@ export class CaptureHandlingService {
         buttonId: data.button_id,
         cameraId: data.camera_id,
         sequence: data.sequence,
-        url: data.image.url,
       },
       `Received capture image ${data.sequence} for ${data.camera_id}`,
     );

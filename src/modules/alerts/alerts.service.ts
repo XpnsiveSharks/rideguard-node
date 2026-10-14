@@ -33,8 +33,9 @@ export class AlertsService {
           event: ALERT_EVENTS.ALERT_CREATED,
           eventId: input.eventId,
           alertId: result.alert.alertFields.alertId,
+          deviceId: result.alert.alertFields.deviceId,
         },
-        `Alert created: ${JSON.stringify(result.alert)}`,
+        'Alert created',
       );
     }
 
