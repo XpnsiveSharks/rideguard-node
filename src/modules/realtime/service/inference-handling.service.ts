@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { InferenceResult } from '../types/inference-result';
-import { AlertFields } from '@/modules/alerts/domain/alerts.entity';
+import { Alert } from '@/modules/alerts/domain/alerts.entity';
 import { DeviceId } from '@/modules/devices/domain/device-id.value-object';
 import { AlertsService } from '@/modules/alerts/alerts.service';
+import { InferenceThreat } from '@/modules/alerts/infrastructure/inference-alerts.repository';
 import { RealtimePublisherService } from './realtime-publishing.service';
 import { REALTIME_CHANNELS } from '../realtime.constants';
 import { DevicesService } from '@/modules/devices/devices.service';
@@ -17,25 +18,68 @@ export class InferenceHandlingService {
   ) {}
 
   async handleResult(result: InferenceResult): Promise<void> {
-    // NOTE: add idempotency for event id
-
-    const alert = this.prepareInferenceResult(result);
+    const prepared = this.prepareInferenceResult(result);
 
     // model-api publishes threats only, but a result with no threat must never
     // become an alert. Continuous phone capture would otherwise flood users.
-    if (!alert) {
+    if (!prepared) {
       return;
     }
 
-    const newAlert = await this.alertsService.createAlert(alert);
+    const eventId = result.event_id;
+    const outcome = await this.alertsService.createInferenceAlert({
+      eventId,
+      alert: prepared.alert,
+      threats: prepared.threats,
+      // Captured once, outside the transaction, so a retry reuses it.
+      processedAt: new Date(),
+    });
+    const deviceId = prepared.alert.alertFields.deviceId;
 
-    const assignedUserId = await this.deviceService.findAssignedUserByDeviceId(alert.deviceId);
-    const channelName = REALTIME_CHANNELS.alerts(assignedUserId, alert.deviceId);
+    if (outcome.outcome === 'event_conflict') {
+      this.logger.warn(
+        { eventId, deviceId, existingDeviceId: outcome.existingDeviceId },
+        'Inference event ID already used by another camera; skipped',
+      );
+      return;
+    }
+    if (outcome.outcome !== 'alert_created') {
+      this.logger.info({ eventId, deviceId, outcome: outcome.outcome }, 'Inference alert skipped');
+      return;
+    }
 
-    await this.realtimePublisherService.publishAlert(channelName, newAlert);
+    await this.deliver(outcome.alert, eventId);
   }
 
-  private prepareInferenceResult(result: InferenceResult): AlertFields | null {
+  // One attempt each for push and Ably, after the alert is saved. A failure in
+  // one never stops the other, and the alert stays readable through the API.
+  private async deliver(alert: Alert, eventId: string): Promise<void> {
+    const { alertId, deviceId } = alert.alertFields;
+    const ownerId = await this.deviceService.findOwnerIdByDeviceId(deviceId);
+
+    if (!ownerId) {
+      this.logger.warn(
+        { eventId, alertId, deviceId },
+        'Alert saved but not delivered: camera has no assigned user',
+      );
+      return;
+    }
+
+    await this.alertsService.sendAlertPush(alert, ownerId, eventId);
+
+    try {
+      await this.realtimePublisherService.publishAlert(
+        REALTIME_CHANNELS.alerts(ownerId, deviceId),
+        alert,
+      );
+    } catch (error: unknown) {
+      this.logger.error({ err: error, eventId, alertId }, 'Realtime alert not delivered');
+    }
+  }
+
+  private prepareInferenceResult(
+    result: InferenceResult,
+  ): { alert: Alert; threats: InferenceThreat[] } | null {
     const { device_id, captured_at, detections, violence, image } = result;
 
     const imageUrl = image?.url ?? null;
@@ -50,13 +94,20 @@ export class InferenceHandlingService {
       return null;
     }
 
+    const threats: InferenceThreat[] = [];
+    if (hasWeapon) threats.push('weapon');
+    if (hasFreshViolence) threats.push('violence');
+
     return {
-      deviceId: deviceId,
-      message: alertMessage,
-      imageUrl: imageUrl,
-      timeStamp: capturedAt,
-      isFalseAlarm: false,
-      isSeen: false,
+      alert: Alert.create({
+        deviceId: deviceId,
+        message: alertMessage,
+        imageUrl: imageUrl,
+        timeStamp: capturedAt,
+        isFalseAlarm: false,
+        isSeen: false,
+      }),
+      threats,
     };
   }
 

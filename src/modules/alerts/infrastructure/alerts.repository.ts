@@ -8,16 +8,6 @@ import { ALERTS_COLLECTION, AlertsMapper } from './alerts.mapper';
 export class AlertsRepository {
   constructor(@Inject(FIREBASE_FIRESTORE) private readonly firestoreClient: Firestore) {}
 
-  // Returns the document ID Firestore generated for the new alert, so callers can
-  // reference the stored alert (e.g. in notification data) by its real ID.
-  async save(alert: Alert): Promise<string> {
-    const documentReference = await this.firestoreClient
-      .collection(ALERTS_COLLECTION)
-      .add(AlertsMapper.toPersistence(alert));
-
-    return documentReference.id;
-  }
-
   async findNonFalseAlarmsByDeviceId(
     deviceIds: string[],
     limit: number,
