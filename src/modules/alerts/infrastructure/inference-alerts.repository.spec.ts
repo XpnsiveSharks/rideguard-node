@@ -1,10 +1,9 @@
 import type { Firestore } from 'firebase-admin/firestore';
 import { Timestamp } from 'firebase-admin/firestore';
-import { Alert } from '../domain/alerts.entity';
 import {
   INFERENCE_ALERT_COOLDOWNS_COLLECTION,
   InferenceAlertsRepository,
-  InferenceThreat,
+  InferenceAlertInput,
   PROCESSED_INFERENCE_EVENTS_COLLECTION,
   processedEventKey,
 } from './inference-alerts.repository';
@@ -21,7 +20,7 @@ function fakeFirestore() {
   const ref = (collection: string, id: string) => ({ id, path: `${collection}/${id}` });
   const snapshot = (path: string) => {
     const data = docs.get(path);
-    return { exists: data !== undefined, get: (field: string) => data?.[field] };
+    return { exists: data !== undefined, get: (field: string) => data?.[field], data: () => data };
   };
 
   const firestore = {
@@ -56,22 +55,20 @@ function setup() {
 
   const handle = (
     eventId: string,
-    threats: InferenceThreat[],
+    labels: string[],
     seconds: number,
-    deviceId = 'CAM-111-AAA',
+    overrides: Partial<InferenceAlertInput> = {},
   ) =>
     repository.createIfEligible({
       eventId,
-      threats,
+      deviceId: 'CAM-111-AAA',
+      weaponLabels: labels,
+      capturedAt: at(seconds),
+      imageUrl: null,
+      hasFreshViolence: false,
+      observationVersion: 2,
       processedAt: at(seconds),
-      alert: Alert.create({
-        deviceId,
-        message: 'Weapon detected',
-        imageUrl: null,
-        timeStamp: T0,
-        isFalseAlarm: false,
-        isSeen: false,
-      }),
+      ...overrides,
     });
 
   const alertCount = () => [...fake.docs.keys()].filter((key) => key.startsWith('alerts/')).length;
@@ -83,33 +80,30 @@ function setup() {
   return { handle, fake, alertCount, cooldown, processed };
 }
 
-describe('InferenceAlertsRepository.createIfEligible', () => {
-  it('follows the ticket timeline for one camera', async () => {
+describe('InferenceAlertsRepository weapon confirmation', () => {
+  it('requires two matching observations and then applies cooldown', async () => {
     const { handle, alertCount } = setup();
 
-    expect((await handle('A', ['weapon'], 0)).outcome).toBe('alert_created');
-    expect((await handle('A', ['weapon'], 1)).outcome).toBe('duplicate');
-    expect((await handle('B', ['weapon'], 5)).outcome).toBe('suppressed_cooldown');
-    expect((await handle('C', ['weapon', 'violence'], 10)).outcome).toBe('alert_created');
-    expect((await handle('D', ['weapon', 'violence'], 15)).outcome).toBe('suppressed_cooldown');
-    expect((await handle('E', ['weapon'], 35)).outcome).toBe('suppressed_cooldown');
-    expect((await handle('F', ['weapon'], 40)).outcome).toBe('alert_created');
-
-    expect(alertCount()).toBe(3);
+    expect((await handle('A', ['gun'], 0)).outcome).toBe('awaiting_confirmation');
+    expect((await handle('A', ['gun'], 1)).outcome).toBe('duplicate');
+    expect((await handle('B', ['gun'], 2)).outcome).toBe('alert_created');
+    expect((await handle('C', ['gun'], 5)).outcome).toBe('suppressed_cooldown');
+    expect(alertCount()).toBe(1);
   });
 
   it('keeps a suppressed event suppressed when replayed after the cooldown', async () => {
     const { handle, processed } = setup();
-    await handle('A', ['weapon'], 0);
-    await handle('B', ['weapon'], 5);
+    await handle('seed', ['gun'], 0);
+    await handle('A', ['gun'], 1);
+    await handle('B', ['gun'], 5);
 
-    expect((await handle('B', ['weapon'], 120)).outcome).toBe('duplicate');
+    expect((await handle('B', ['gun'], 120)).outcome).toBe('duplicate');
     expect(processed('B')).toMatchObject({ outcome: 'suppressed_cooldown', alertId: null });
   });
 
   it('records the alert ID and expiry on the processed event', async () => {
     const { handle, processed } = setup();
-    const result = await handle('A', ['weapon'], 0);
+    const result = await handle('A', [], 0, { hasFreshViolence: true });
 
     expect(result.outcome).toBe('alert_created');
     const alertId = result.outcome === 'alert_created' ? result.alert.alertFields.alertId : null;
@@ -125,42 +119,55 @@ describe('InferenceAlertsRepository.createIfEligible', () => {
 
   it('does not move the cooldown on suppressed events', async () => {
     const { handle, cooldown } = setup();
-    await handle('A', ['weapon'], 0);
-    await handle('B', ['weapon'], 5);
-    await handle('C', ['weapon'], 29);
+    await handle('seed', ['gun'], -1);
+    await handle('A', ['gun'], 0);
+    await handle('B', ['gun'], 5);
+    await handle('C', ['gun'], 29);
 
-    expect(cooldown()).toEqual({
+    expect(cooldown()).toMatchObject({
       deviceId: 'CAM-111-AAA',
       weaponLastAlertAt: Timestamp.fromDate(at(0)),
       violenceLastAlertAt: null,
     });
-    expect((await handle('D', ['weapon'], 30)).outcome).toBe('alert_created');
+    expect((await handle('D', ['gun'], 30)).outcome).toBe('alert_created');
   });
 
   it('resets both types after a combined alert', async () => {
     const { handle, cooldown } = setup();
-    await handle('A', ['weapon'], 0);
-    await handle('B', ['weapon', 'violence'], 10);
+    await handle('seed', ['gun'], -1);
+    await handle('A', ['gun'], 0);
+    const result = await handle('B', ['gun'], 10, { hasFreshViolence: true });
+    expect(result.outcome).toBe('alert_created');
+    if (result.outcome === 'alert_created') {
+      expect(result.alert.getMessage()).toBe('Violence and weapon detected');
+    }
 
     expect(cooldown()).toMatchObject({
       weaponLastAlertAt: Timestamp.fromDate(at(10)),
       violenceLastAlertAt: Timestamp.fromDate(at(10)),
     });
-    expect((await handle('C', ['violence'], 20)).outcome).toBe('suppressed_cooldown');
+    expect((await handle('C', [], 20, { hasFreshViolence: true })).outcome).toBe(
+      'suppressed_cooldown',
+    );
   });
 
   it("does not let one camera's cooldown suppress another", async () => {
     const { handle } = setup();
-    await handle('A', ['weapon'], 0, 'CAM-111-AAA');
-
-    expect((await handle('B', ['weapon'], 1, 'CAM-222-BBB')).outcome).toBe('alert_created');
+    await handle('A', ['gun'], 0);
+    await handle('B', ['gun'], 1);
+    expect((await handle('C', ['gun'], 1, { deviceId: 'CAM-222-BBB' })).outcome).toBe(
+      'awaiting_confirmation',
+    );
+    expect((await handle('D', ['gun'], 2, { deviceId: 'CAM-222-BBB' })).outcome).toBe(
+      'alert_created',
+    );
   });
 
   it('skips an event ID already used by another camera', async () => {
     const { handle, alertCount } = setup();
-    await handle('A', ['weapon'], 0, 'CAM-111-AAA');
+    await handle('A', [], 0, { hasFreshViolence: true });
 
-    await expect(handle('A', ['weapon'], 60, 'CAM-222-BBB')).resolves.toEqual({
+    await expect(handle('A', ['gun'], 60, { deviceId: 'CAM-222-BBB' })).resolves.toEqual({
       outcome: 'event_conflict',
       existingDeviceId: 'CAM-111-AAA',
     });
@@ -171,7 +178,126 @@ describe('InferenceAlertsRepository.createIfEligible', () => {
     const { handle, fake } = setup();
     fake.state.failCommit = true;
 
-    await expect(handle('A', ['weapon'], 0)).rejects.toThrow('commit failed');
+    await expect(handle('A', [], 0, { hasFreshViolence: true })).rejects.toThrow('commit failed');
     expect(fake.docs.size).toBe(0);
+  });
+
+  it('counts a negative frame in the last three observations', async () => {
+    const { handle, cooldown, alertCount } = setup();
+    await handle('A', ['gun'], 0);
+    await handle('B', [], 1);
+    await handle('C', [], 2);
+    expect((await handle('D', ['gun'], 3)).outcome).toBe('awaiting_confirmation');
+    expect(alertCount()).toBe(0);
+    expect(cooldown()?.weaponObservations).toHaveLength(3);
+  });
+
+  it('allows two matching hits separated by one negative', async () => {
+    const { handle } = setup();
+    await handle('A', ['gun'], 0);
+    await handle('B', [], 1);
+    expect((await handle('C', ['gun'], 2)).outcome).toBe('alert_created');
+  });
+
+  it('does not mix gun and knife evidence or count multiple boxes as frames', async () => {
+    const { handle } = setup();
+    expect((await handle('A', ['gun', 'gun'], 0)).outcome).toBe('awaiting_confirmation');
+    expect((await handle('B', ['knife'], 1)).outcome).toBe('awaiting_confirmation');
+    expect((await handle('C', [' Knife '], 2)).outcome).toBe('alert_created');
+  });
+
+  it('ignores unsupported object classes', async () => {
+    const { handle, alertCount } = setup();
+    await handle('A', ['person'], 0);
+    expect((await handle('B', ['person'], 1)).outcome).toBe('ignored_no_threat');
+    expect(alertCount()).toBe(0);
+  });
+
+  it('requires a matching positive in the current frame, even after cooldown', async () => {
+    const { handle, alertCount } = setup();
+    // A violence event can arrive first, so seed an existing weapon cooldown too.
+    await handle('A', ['gun'], 0);
+    await handle('B', ['gun'], 1);
+    await handle('C', ['gun'], 29);
+    await handle('D', ['gun'], 30);
+    expect((await handle('E', [], 31)).outcome).toBe('ignored_no_threat');
+    expect(alertCount()).toBe(1);
+  });
+
+  it('expires evidence outside the ten-second window', async () => {
+    const { handle } = setup();
+    await handle('A', ['gun'], 0);
+    expect((await handle('B', ['gun'], 10.001)).outcome).toBe('awaiting_confirmation');
+    expect((await handle('C', ['gun'], 11)).outcome).toBe('alert_created');
+  });
+
+  it('ignores stale, future, equal-time, and out-of-order observations', async () => {
+    const { handle, cooldown } = setup();
+    await handle('A', ['gun'], 10);
+    expect((await handle('old', [], 9)).outcome).toBe('ignored_stale');
+    expect((await handle('same', ['gun'], 10)).outcome).toBe('ignored_stale');
+    expect((await handle('late', ['gun'], 11, { processedAt: at(42) })).outcome).toBe(
+      'ignored_stale',
+    );
+    expect((await handle('future', ['gun'], 20, { processedAt: at(14) })).outcome).toBe(
+      'ignored_stale',
+    );
+    expect(cooldown()?.weaponObservations).toHaveLength(1);
+    expect((await handle('B', ['gun'], 11)).outcome).toBe('alert_created');
+  });
+
+  it('records negatives and duplicates without counting them twice', async () => {
+    const { handle, cooldown } = setup();
+    await handle('A', ['gun'], 0);
+    await handle('B', [], 1);
+    expect((await handle('B', [], 2)).outcome).toBe('duplicate');
+    expect(cooldown()?.weaponObservations).toHaveLength(2);
+    expect((await handle('C', ['gun'], 3)).outcome).toBe('alert_created');
+  });
+
+  it('preserves evidence across repository instances (restart)', async () => {
+    const { handle, fake } = setup();
+    await handle('A', ['gun'], 0);
+    const restarted = new InferenceAlertsRepository(fake.firestore);
+    const result = await restarted.createIfEligible({
+      eventId: 'B',
+      deviceId: 'CAM-111-AAA',
+      capturedAt: at(1),
+      processedAt: at(1),
+      imageUrl: null,
+      weaponLabels: ['gun'],
+      hasFreshViolence: false,
+      observationVersion: 2,
+    });
+    expect(result.outcome).toBe('alert_created');
+  });
+
+  it('waits for an all-observations producer before confirming weapons', async () => {
+    const { handle, cooldown } = setup();
+    await handle('A', ['gun'], 0, { observationVersion: undefined });
+    expect((await handle('B', ['gun'], 1, { observationVersion: undefined })).outcome).toBe(
+      'awaiting_observations',
+    );
+    expect(cooldown()).toBeUndefined();
+  });
+
+  it('keeps fresh violence immediate without an unconfirmed weapon in the message', async () => {
+    const { handle } = setup();
+    const result = await handle('A', ['gun'], 0, { hasFreshViolence: true });
+    expect(result.outcome).toBe('alert_created');
+    if (result.outcome === 'alert_created')
+      expect(result.alert.getMessage()).toBe('Violence detected');
+  });
+
+  it('migrates an existing cooldown record without losing its alert times', async () => {
+    const { handle, fake, cooldown } = setup();
+    fake.docs.set(`${INFERENCE_ALERT_COOLDOWNS_COLLECTION}/CAM-111-AAA`, {
+      deviceId: 'CAM-111-AAA',
+      weaponLastAlertAt: Timestamp.fromDate(at(0)),
+      violenceLastAlertAt: null,
+    });
+    await handle('A', ['gun'], 1);
+    expect((await handle('B', ['gun'], 2)).outcome).toBe('suppressed_cooldown');
+    expect(cooldown()?.weaponLastAlertAt).toEqual(Timestamp.fromDate(at(0)));
   });
 });

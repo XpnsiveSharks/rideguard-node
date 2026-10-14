@@ -1,4 +1,5 @@
 export type InferenceResult = {
+  schema_version?: 2;
   event_id: string;
   device_id: string;
   captured_at: string;
@@ -42,6 +43,8 @@ export type BoundingBox = {
 };
 
 export type ViolenceResult = {
+  // Version 2 carries the producer's confidence decision with the raw result.
+  alert_eligible?: boolean;
   status: string;
   label: string | null;
   confidence: number | null;

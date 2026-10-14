@@ -54,6 +54,7 @@ const inferenceImageSchema = Joi.alternatives<InferenceImage>().try(
 );
 
 const violenceResultSchema = Joi.object<ViolenceResult>({
+  alert_eligible: Joi.boolean(),
   inference_ran: Joi.boolean().required(),
   status: Joi.string().trim().required(),
   label: Joi.string().trim().allow(null).required(),
@@ -63,6 +64,7 @@ const violenceResultSchema = Joi.object<ViolenceResult>({
   .unknown(false);
 
 export const inferenceResultSchema = Joi.object<InferenceResult>({
+  schema_version: Joi.number().valid(2),
   event_id: Joi.string().trim().required(),
   device_id: Joi.string().trim().required(),
   captured_at: Joi.string().isoDate().required(),
@@ -79,7 +81,10 @@ export const inferenceResultSchema = Joi.object<InferenceResult>({
     .required()
     .unknown(false),
 
-  violence: violenceResultSchema,
+  violence: violenceResultSchema.when('schema_version', {
+    is: Joi.valid(2).required(),
+    then: violenceResultSchema.keys({ alert_eligible: Joi.boolean().required() }),
+  }),
   image: inferenceImageSchema.allow(null).required(),
 })
   .required()
