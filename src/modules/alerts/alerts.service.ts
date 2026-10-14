@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { AlertsRepository } from './infrastructure/alerts.repository';
-import { Alert, AlertFields } from './domain/alerts.entity';
+import {
+  InferenceAlertInput,
+  InferenceAlertOutcome,
+  InferenceAlertsRepository,
+} from './infrastructure/inference-alerts.repository';
+import { Alert } from './domain/alerts.entity';
 import { ALERT_EVENTS, ALERT_PUSH_TITLE } from './alerts.constants';
 import { PinoLogger } from 'nestjs-pino';
 import { DevicesService } from '../devices/devices.service';
@@ -10,55 +15,59 @@ import { PushNotification } from '../notifications/domain/push-notification.valu
 export class AlertsService {
   constructor(
     private readonly alertsRepository: AlertsRepository,
+    private readonly inferenceAlertsRepository: InferenceAlertsRepository,
     private readonly logger: PinoLogger,
     private readonly diviceService: DevicesService,
     private readonly notificationsService: NotificationsService,
   ) {}
 
   // *** CREATE ALERT - REALTIME INFERENCE ***
-  async createAlert(alert: AlertFields): Promise<Alert> {
-    const newAlert = Alert.create(alert);
-    const savedAlertId = await this.alertsRepository.save(newAlert);
+  // Saves the alert only if the event is new and not in its camera's cooldown.
+  // Delivery is separate so it runs once, after the transaction commits.
+  async createInferenceAlert(input: InferenceAlertInput): Promise<InferenceAlertOutcome> {
+    const result = await this.inferenceAlertsRepository.createIfEligible(input);
 
-    // Rebuild the alert with the real Firestore document ID. Notification and
-    // realtime payloads read alertId from here, and it must be the stored ID —
-    // never the optional incoming ID, which may differ from what Firestore saved.
-    const savedAlert = Alert.create({ ...newAlert.alertFields, alertId: savedAlertId });
+    if (result.outcome === 'alert_created') {
+      this.logger.info(
+        {
+          event: ALERT_EVENTS.ALERT_CREATED,
+          eventId: input.eventId,
+          alertId: result.alert.alertFields.alertId,
+        },
+        `Alert created: ${JSON.stringify(result.alert)}`,
+      );
+    }
 
-    this.logger.info(
-      { event: ALERT_EVENTS.ALERT_CREATED },
-      `Alert created: ${JSON.stringify(savedAlert)}`,
-    );
-
-    // Push delivery
-    await this.sendAlertPush(savedAlert, savedAlertId);
-
-    return savedAlert;
+    return result;
   }
 
-  // Notifies the device owner about a new alert. Failures here never affect alert
-  // creation: the alert is already saved, so we log and move on.
-  private async sendAlertPush(alert: Alert, alertId: string): Promise<void> {
+  // Pushes an already-saved alert to its owner. Never throws: the alert stays
+  // saved and readable through the API, so failures are only logged.
+  async sendAlertPush(alert: Alert, ownerId: string, eventId: string): Promise<void> {
+    const { alertId, deviceId } = alert.alertFields;
+
     try {
-      const deviceId = alert.alertFields.deviceId;
-      const ownerId = await this.diviceService.findOwnerIdByDeviceId(deviceId);
-
-      // Unclaimed device: nobody to notify.
-      if (!ownerId) {
-        return;
-      }
-
       const notification = PushNotification.create({
         title: ALERT_PUSH_TITLE,
         body: alert.getMessage(),
         eventType: ALERT_EVENTS.ALERT_CREATED,
-        data: { alertId, deviceId },
+        data: { alertId: alertId ?? '', deviceId },
       });
 
-      await this.notificationsService.sendToUsers({ userIds: [ownerId], notification });
+      const result = await this.notificationsService.sendToUsers({
+        userIds: [ownerId],
+        notification,
+      });
+
+      if (result.failedCount > 0) {
+        this.logger.warn(
+          { event: ALERT_EVENTS.ALERT_FAILED, eventId, alertId, ...result },
+          'Some alert push notifications failed',
+        );
+      }
     } catch (error: unknown) {
       this.logger.error(
-        { err: error, event: ALERT_EVENTS.ALERT_FAILED, alertId },
+        { err: error, event: ALERT_EVENTS.ALERT_FAILED, eventId, alertId },
         'Failed to send alert push notification',
       );
     }
