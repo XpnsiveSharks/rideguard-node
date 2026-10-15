@@ -217,6 +217,45 @@ describe('InferenceHandlingService', () => {
       expect.objectContaining({ hasFreshViolence: true }),
     );
   });
+
+  it('passes the uploaded clip URL to the transaction', async () => {
+    const { service, alertsService } = setup();
+    await service.handleResult(
+      result({
+        violence: {
+          status: 'ok',
+          label: 'violent',
+          confidence: 0.9,
+          inference_ran: true,
+          alert_eligible: true,
+        },
+        video: {
+          status: 'uploaded',
+          provider: 'cloudinary',
+          public_id: 'rideguard/violence-clips/cam-222-bbb/2026-10-14/event-1',
+          format: 'mp4',
+          url: 'https://media.example.com/signed/clip.mp4',
+          frame_count: 16,
+          started_at: '2026-10-14T00:00:00.000Z',
+          ended_at: '2026-10-14T00:00:15.000Z',
+        },
+      }),
+    );
+    expect(alertsService.createInferenceAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ videoUrl: 'https://media.example.com/signed/clip.mp4' }),
+    );
+  });
+
+  it.each([
+    ['an unavailable clip', { status: 'unavailable' as const, url: null }],
+    ['no video field at all', undefined],
+  ])('passes a null video URL for %s', async (_label, video) => {
+    const { service, alertsService } = setup();
+    await service.handleResult(result({ video }));
+    expect(alertsService.createInferenceAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ videoUrl: null }),
+    );
+  });
 });
 
 describe('versioned inference contract', () => {
@@ -236,5 +275,68 @@ describe('versioned inference contract', () => {
     delete event.schema_version;
     delete event.violence.alert_eligible;
     expect(inferenceResultSchema.validate(event).error).toBeUndefined();
+  });
+
+  it('accepts an uploaded video with ordered timestamps', () => {
+    const event = result({
+      video: {
+        status: 'uploaded',
+        provider: 'cloudinary',
+        public_id: 'rideguard/violence-clips/cam-222-bbb/2026-10-14/event-1',
+        format: 'mp4',
+        url: 'https://media.example.com/signed/clip.mp4',
+        frame_count: 16,
+        started_at: '2026-10-14T00:00:00.000Z',
+        ended_at: '2026-10-14T00:00:15.000Z',
+      },
+    });
+    expect(inferenceResultSchema.validate(event).error).toBeUndefined();
+  });
+
+  it('accepts an unavailable video and a missing/null video', () => {
+    expect(
+      inferenceResultSchema.validate(result({ video: { status: 'unavailable', url: null } })).error,
+    ).toBeUndefined();
+    expect(inferenceResultSchema.validate(result({ video: null })).error).toBeUndefined();
+    expect(inferenceResultSchema.validate(result()).error).toBeUndefined();
+  });
+
+  it('rejects a video whose clip ends before it starts', () => {
+    const event = result({
+      video: {
+        status: 'uploaded',
+        provider: 'cloudinary',
+        public_id: 'rideguard/violence-clips/cam-222-bbb/2026-10-14/event-1',
+        format: 'mp4',
+        url: 'https://media.example.com/signed/clip.mp4',
+        frame_count: 16,
+        started_at: '2026-10-14T00:00:15.000Z',
+        ended_at: '2026-10-14T00:00:00.000Z',
+      },
+    });
+    expect(inferenceResultSchema.validate(event).error).toBeDefined();
+  });
+
+  it('rejects a non-HTTPS or non-MP4 video URL', () => {
+    const base = {
+      status: 'uploaded' as const,
+      provider: 'cloudinary' as const,
+      public_id: 'rideguard/violence-clips/cam-222-bbb/2026-10-14/event-1',
+      frame_count: 16,
+      started_at: '2026-10-14T00:00:00.000Z',
+      ended_at: '2026-10-14T00:00:15.000Z',
+    };
+    expect(
+      inferenceResultSchema.validate(
+        result({ video: { ...base, format: 'mp4', url: 'http://media.example.com/clip.mp4' } }),
+      ).error,
+    ).toBeDefined();
+    expect(
+      inferenceResultSchema.validate(
+        result({
+          video: { ...base, format: 'mov', url: 'https://media.example.com/clip.mov' },
+        }),
+      ).error,
+    ).toBeDefined();
   });
 });

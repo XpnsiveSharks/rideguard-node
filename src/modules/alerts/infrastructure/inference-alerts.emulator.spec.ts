@@ -61,6 +61,7 @@ emulatorTests('inference confirmation transaction contention (emulator)', () => 
       capturedAt: new Date(baseTime + offsetMs),
       processedAt: new Date(baseTime + offsetMs),
       imageUrl: null,
+      videoUrl: null,
       observationVersion: 2,
     });
   };

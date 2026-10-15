@@ -65,6 +65,7 @@ function setup() {
       weaponLabels: labels,
       capturedAt: at(seconds),
       imageUrl: null,
+      videoUrl: null,
       hasFreshViolence: false,
       observationVersion: 2,
       processedAt: at(seconds),
@@ -139,7 +140,7 @@ describe('InferenceAlertsRepository weapon confirmation', () => {
     const result = await handle('B', ['gun'], 10, { hasFreshViolence: true });
     expect(result.outcome).toBe('alert_created');
     if (result.outcome === 'alert_created') {
-      expect(result.alert.getMessage()).toBe('Violence and weapon detected');
+      expect(result.alert.getMessage()).toBe('Possible violence and weapon detected');
     }
 
     expect(cooldown()).toMatchObject({
@@ -265,6 +266,7 @@ describe('InferenceAlertsRepository weapon confirmation', () => {
       capturedAt: at(1),
       processedAt: at(1),
       imageUrl: null,
+      videoUrl: null,
       weaponLabels: ['gun'],
       hasFreshViolence: false,
       observationVersion: 2,
@@ -286,7 +288,49 @@ describe('InferenceAlertsRepository weapon confirmation', () => {
     const result = await handle('A', ['gun'], 0, { hasFreshViolence: true });
     expect(result.outcome).toBe('alert_created');
     if (result.outcome === 'alert_created')
-      expect(result.alert.getMessage()).toBe('Violence detected');
+      expect(result.alert.getMessage()).toBe('Possible violence detected');
+  });
+
+  it('attaches the clip URL to a fresh violence alert', async () => {
+    const { handle } = setup();
+    const result = await handle('A', [], 0, {
+      hasFreshViolence: true,
+      videoUrl: 'https://media.example.com/signed/clip.mp4',
+    });
+    expect(result.outcome).toBe('alert_created');
+    if (result.outcome === 'alert_created') {
+      expect(result.alert.getVideoUrl()).toBe('https://media.example.com/signed/clip.mp4');
+    }
+  });
+
+  it('attaches the clip URL to a combined violence-and-weapon alert', async () => {
+    const { handle } = setup();
+    await handle('seed', ['gun'], -1);
+    await handle('A', ['gun'], 0);
+    const result = await handle('B', ['gun'], 10, {
+      hasFreshViolence: true,
+      videoUrl: 'https://media.example.com/signed/clip.mp4',
+    });
+    expect(result.outcome).toBe('alert_created');
+    if (result.outcome === 'alert_created') {
+      expect(result.alert.getVideoUrl()).toBe('https://media.example.com/signed/clip.mp4');
+    }
+  });
+
+  it('never attaches a clip URL to a weapon-only alert: media cannot qualify a threat', async () => {
+    const { handle } = setup();
+    await handle('seed', ['gun'], 0);
+    const result = await handle('A', ['gun'], 1, {
+      videoUrl: 'https://media.example.com/signed/clip.mp4',
+    });
+    const result2 = await handle('B', ['gun'], 2, {
+      videoUrl: 'https://media.example.com/signed/clip.mp4',
+    });
+    const created = [result, result2].find((r) => r.outcome === 'alert_created');
+    expect(created?.outcome).toBe('alert_created');
+    if (created?.outcome === 'alert_created') {
+      expect(created.alert.getVideoUrl()).toBeNull();
+    }
   });
 
   it('migrates an existing cooldown record without losing its alert times', async () => {

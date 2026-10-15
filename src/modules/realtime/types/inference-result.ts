@@ -11,6 +11,9 @@ export type InferenceResult = {
   };
   violence: ViolenceResult;
   image: InferenceImage | null;
+  // Absent or null means no clip, including from older producers. Only ever
+  // present on a fresh, alert-eligible violence result.
+  video?: InferenceVideo | null;
 };
 
 export type InferenceImage =
@@ -26,6 +29,23 @@ export type InferenceImage =
   | {
       status: 'upload_failed';
       provider: 'cloudinary';
+      url: null;
+    };
+
+export type InferenceVideo =
+  | {
+      status: 'uploaded';
+      provider: 'cloudinary';
+      public_id: string;
+      format: string;
+      url: string;
+      frame_count: number;
+      started_at: string;
+      ended_at: string;
+    }
+  | {
+      // Covers encoding failure, upload failure, or insufficient processing budget.
+      status: 'unavailable';
       url: null;
     };
 

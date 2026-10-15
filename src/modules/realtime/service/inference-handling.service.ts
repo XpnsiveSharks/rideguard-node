@@ -26,6 +26,9 @@ export class InferenceHandlingService {
       capturedAt: new Date(result.captured_at),
       imageUrl: result.image?.url ?? null,
       weaponLabels: result.detections.objects.map((object) => object.label),
+      // The repository only attaches this when the alert includes a qualifying
+      // violence threat. Media never independently qualifies one.
+      videoUrl: result.video?.status === 'uploaded' ? result.video.url : null,
       observationVersion: result.schema_version,
       // V2 also publishes weak violence results. Preserve the model's threshold.
       hasFreshViolence:
