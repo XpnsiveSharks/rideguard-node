@@ -1,9 +1,10 @@
 import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { Firestore } from 'firebase-admin/firestore';
 import { FIREBASE_FIRESTORE, NOT_FOUND_ERROR_CODE } from '@/infra/firebase/firebase.constants';
-import { Device, DeviceFields } from '../domain/device.entity';
+import { Device, DeviceFields, DeviceSource } from '../domain/device.entity';
 import { DeviceMapper, DEVICES_COLLECTION } from './devices.mapper';
 import { FieldValue } from 'firebase-admin/firestore';
+import { CAMERA_ID_PREFIX } from '../device.constants';
 
 function firestoreErrorCode(error: unknown): number | undefined {
   if (typeof error === 'object' && error !== null && 'code' in error) {
@@ -70,6 +71,30 @@ export class DeviceRepository {
     });
   }
 
+  async updateStreamUrl(deviceId: string, streamUrl: string): Promise<Device> {
+    const reference = this.firestore.collection(DEVICES_COLLECTION).doc(deviceId);
+
+    return this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+
+      if (!snapshot.exists) {
+        throw new NotFoundException(`Incorrect device ID: ${deviceId}`);
+      }
+
+      const device = DeviceMapper.toDomain(snapshot.data() as DeviceFields);
+
+      const updatedDevice = device.reportStreamUrl(streamUrl);
+
+      transaction.update(reference, {
+        streamUrl: updatedDevice.getStreamUrl(),
+        lastSeenAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return updatedDevice;
+    });
+  }
+
   async rotateSecret(deviceId: string, deviceSecretHash: string): Promise<void> {
     try {
       await this.firestore.collection(DEVICES_COLLECTION).doc(deviceId).update({
@@ -111,5 +136,35 @@ export class DeviceRepository {
       .get();
 
     return querySnapshot.docs.map((doc) => doc.id);
+  }
+
+  async findCameraIdsByAssignedUser(assignedUserId: string): Promise<string[]> {
+    // deviceType is stored inconsistently ("Camera" vs "camera"), so filter on
+    // the canonical CAM- ID prefix instead. See findCamerasByAssignedUser.
+    const querySnapshot = await this.firestore
+      .collection(DEVICES_COLLECTION)
+      .where('assignedUserId', '==', assignedUserId)
+      .get();
+
+    return querySnapshot.docs
+      .filter(
+        (doc) =>
+          doc.id.startsWith(CAMERA_ID_PREFIX) && doc.get('source') !== DeviceSource.PHONE,
+      )
+      .map((doc) => doc.id);
+  }
+
+  async findCamerasByAssignedUser(assignedUserId: string): Promise<Device[]> {
+    // deviceType is stored inconsistently in production ("Camera" vs "camera"),
+    // so filtering on it misses real cameras. The device ID prefix is canonical
+    // (DeviceId enforces CAM- for cameras), so filter on that instead.
+    const querySnapshot = await this.firestore
+      .collection(DEVICES_COLLECTION)
+      .where('assignedUserId', '==', assignedUserId)
+      .get();
+
+    return querySnapshot.docs
+      .filter((doc) => doc.id.startsWith(CAMERA_ID_PREFIX))
+      .map((doc) => DeviceMapper.toDomain(doc.data() as DeviceFields));
   }
 }

@@ -1,8 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { Auth, DecodedIdToken } from 'firebase-admin/auth';
+import type { Auth, DecodedIdToken } from 'firebase-admin/auth';
 import { FIREBASE_AUTH } from '@/infra/firebase/firebase.constants';
 import { ABLY_REST } from '@/infra/ably/ably.constants';
-import { Rest, TokenRequest } from 'ably';
+import type { Rest, TokenRequest } from 'ably';
 import { REALTIME_CHANNELS } from '@/modules/realtime/realtime.constants';
 import { ONE_HOUR_IN_MILLISECONDS } from '@/common/constants/time.constants';
 @Injectable()
@@ -26,6 +26,7 @@ export class AuthService {
       ttl: ONE_HOUR_IN_MILLISECONDS,
       capability: JSON.stringify({
         [userChannelPattern]: ['subscribe'],
+        [REALTIME_CHANNELS.buttonEvents]: ['subscribe'],
       }),
     });
   }

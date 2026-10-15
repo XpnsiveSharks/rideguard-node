@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { InferenceResult } from '../realtime-result';
-import { AlertFields } from '@/modules/alerts/domain/alerts.entity';
+import { InferenceResult } from '../types/inference-result';
+import { Alert } from '@/modules/alerts/domain/alerts.entity';
 import { DeviceId } from '@/modules/devices/domain/device-id.value-object';
 import { AlertsService } from '@/modules/alerts/alerts.service';
 import { RealtimePublisherService } from './realtime-publishing.service';
@@ -17,51 +17,66 @@ export class InferenceHandlingService {
   ) {}
 
   async handleResult(result: InferenceResult): Promise<void> {
-    // NOTE: add idempotency for event id
+    const eventId = result.event_id;
+    const deviceId = DeviceId.create(result.device_id).toString();
+    const violence = result.violence;
+    const outcome = await this.alertsService.createInferenceAlert({
+      eventId,
+      deviceId,
+      capturedAt: new Date(result.captured_at),
+      imageUrl: result.image?.url ?? null,
+      weaponLabels: result.detections.objects.map((object) => object.label),
+      // The repository only attaches this when the alert includes a qualifying
+      // violence threat. Media never independently qualifies one.
+      videoUrl: result.video?.status === 'uploaded' ? result.video.url : null,
+      observationVersion: result.schema_version,
+      // V2 also publishes weak violence results. Preserve the model's threshold.
+      hasFreshViolence:
+        violence.label === 'violent' &&
+        violence.inference_ran === true &&
+        (result.schema_version !== 2 || violence.alert_eligible === true),
+      // Captured once, outside the transaction, so a retry reuses it.
+      processedAt: new Date(),
+    });
 
-    const alert = this.prepareInferenceResult(result);
-    const deviceId = alert.deviceId;
-
-    if (alert.message) {
-      const newAlert = await this.alertsService.createAlert(alert);
-
-      const assignedUserId = await this.deviceService.findAssignedUserByDeviceId(deviceId);
-      const channelName = REALTIME_CHANNELS.alerts(assignedUserId, deviceId);
-
-      await this.realtimePublisherService.publishAlert(channelName, newAlert);
+    if (outcome.outcome === 'event_conflict') {
+      this.logger.warn(
+        { eventId, deviceId, existingDeviceId: outcome.existingDeviceId },
+        'Inference event ID already used by another camera; skipped',
+      );
+      return;
     }
+    if (outcome.outcome !== 'alert_created') {
+      this.logger.info({ eventId, deviceId, outcome: outcome.outcome }, 'Inference alert skipped');
+      return;
+    }
+
+    await this.deliver(outcome.alert, eventId);
   }
 
-  private prepareInferenceResult(result: InferenceResult): AlertFields {
-    const { device_id, captured_at, detections, violence, image } = result;
+  // One attempt each for push and Ably, after the alert is saved. A failure in
+  // one never stops the other, and the alert stays readable through the API.
+  private async deliver(alert: Alert, eventId: string): Promise<void> {
+    const { alertId, deviceId } = alert.alertFields;
+    const ownerId = await this.deviceService.findOwnerIdByDeviceId(deviceId);
 
-    const imageUrl = image?.url ?? null;
-    const deviceId = DeviceId.create(device_id).toString();
-    const capturedAt = new Date(captured_at);
-    const hasWeapon = detections.objects.length > 0;
-    const hasFreshViolence = violence?.label === 'violent' && violence?.inference_ran === true;
-    const alertMessage = this.buildAlertMessage(hasWeapon, hasFreshViolence);
-    this.logger.info(detections.objects, 'Detected objects');
-    return {
-      deviceId: deviceId,
-      message: alertMessage,
-      imageUrl: imageUrl,
-      timeStamp: capturedAt,
-      isFalseAlarm: false,
-      isSeen: false,
-    };
-  }
+    if (!ownerId) {
+      this.logger.warn(
+        { eventId, alertId, deviceId },
+        'Alert saved but not delivered: camera has no assigned user',
+      );
+      return;
+    }
 
-  private buildAlertMessage(hasWeapon: boolean, hasFreshViolence: boolean): string {
-    if (hasWeapon && hasFreshViolence) {
-      return `Violence and weapon detected`;
+    await this.alertsService.sendAlertPush(alert, ownerId, eventId);
+
+    try {
+      await this.realtimePublisherService.publishAlert(
+        REALTIME_CHANNELS.alerts(ownerId, deviceId),
+        alert,
+      );
+    } catch (error: unknown) {
+      this.logger.error({ err: error, eventId, alertId }, 'Realtime alert not delivered');
     }
-    if (hasWeapon) {
-      return `Weapon detected`;
-    }
-    if (hasFreshViolence) {
-      return `Violence detected`;
-    }
-    return `Nothing was detected here`;
   }
 }

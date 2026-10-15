@@ -34,7 +34,7 @@ export class DeviceTokenService {
       throw new ForbiddenException('Publisher tokens are only available to button devices');
     }
 
-    const channel = REALTIME_CHANNELS.buttonEvents(device.getDeviceId());
+    const channel = REALTIME_CHANNELS.buttonEvents;
     try {
       const details = await this.issuer.auth.requestToken({
         clientId: device.getDeviceId(),

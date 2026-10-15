@@ -5,7 +5,7 @@ export class Alert {
   constructor(public readonly alertFields: AlertFields) {}
 
   public static create(alertFields: AlertFields): Alert {
-    const { deviceId, message, imageUrl, timeStamp, isFalseAlarm, isSeen } = alertFields;
+    const { deviceId, message, imageUrl, videoUrl, timeStamp, isFalseAlarm, isSeen } = alertFields;
     const trimmedMessage = trimmed(message, 'message');
 
     return new Alert({
@@ -13,6 +13,9 @@ export class Alert {
       deviceId: deviceId,
       message: trimmedMessage,
       imageUrl: imageUrl,
+      // A record saved before this field existed has no key at all; normalize
+      // that to null rather than leaking undefined to clients.
+      videoUrl: videoUrl ?? null,
       timeStamp,
       isFalseAlarm,
       isSeen,
@@ -26,6 +29,10 @@ export class Alert {
 
   getImageUrl(): string | null | undefined {
     return this.alertFields.imageUrl;
+  }
+
+  getVideoUrl(): string | null {
+    return this.alertFields.videoUrl ?? null;
   }
 
   getTimeStamp(): Date {
@@ -47,6 +54,7 @@ export type AlertFields = {
   deviceId: string;
   message: string;
   imageUrl?: string | null | undefined;
+  videoUrl?: string | null | undefined;
   timeStamp: Date;
   isFalseAlarm: boolean;
   isSeen: boolean;

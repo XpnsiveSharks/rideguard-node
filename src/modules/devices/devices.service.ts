@@ -13,10 +13,13 @@ import { generateDeviceSecret, hashDeviceSecret } from './infrastructure/device-
 import type { RegisterDeviceResult, RotateDeviceSecretResult } from './devices.types';
 import { PinoLogger } from 'nestjs-pino';
 import {
+  CAMERA_ONLINE_WINDOW_MS,
   DEVICE_EVENTS,
   DEVICE_MESSAGES,
   MAX_DEVICE_ID_GENERATION_ATTEMPTS,
+  PHONE_PRESENCE_TIMEOUT_MS,
 } from './device.constants';
+import type { CameraView } from './devices.types';
 
 @Injectable()
 export class DevicesService {
@@ -135,6 +138,69 @@ export class DevicesService {
     );
   }
 
+  // *** REPORT STREAM URL - HARDWARE ***
+  // The camera calls this on connect and whenever its IP changes, so the stored
+  // URL always points at the board's current address.
+  async reportStreamUrl(deviceId: string, streamUrl: string): Promise<void> {
+    DeviceId.isEmpty(deviceId);
+
+    const updatedDevice = await this.deviceRepository.updateStreamUrl(deviceId, streamUrl);
+
+    this.logger.info(
+      { event: DEVICE_EVENTS.DEVICE_STREAM_URL_REPORTED },
+      DEVICE_MESSAGES.DEVICE_STREAM_URL_REPORTED_MESSAGE(updatedDevice.getDeviceId()),
+    );
+  }
+
+  // *** LIST CAMERAS FOR THE LOGGED-IN USER - MOBILE ***
+  // Returns each camera with its current stream URL so the app can render one
+  // player per camera.
+  async findCamerasForUser(userId: string | undefined): Promise<CameraView[]> {
+    const normalizedUserId = userId?.trim();
+
+    if (!normalizedUserId) {
+      throw new UnprocessableEntityException(
+        'We could not verify your account. Please log in again.',
+      );
+    }
+
+    const cameras = await this.deviceRepository.findCamerasByAssignedUser(normalizedUserId);
+    const now = Date.now();
+
+    return cameras.map((camera) => {
+      const lastSeenAt = camera.getLastSeenAt();
+      const online = camera.isPhone()
+        ? this.isPhoneOnline(camera, now)
+        : lastSeenAt
+          ? now - lastSeenAt.getTime() <= CAMERA_ONLINE_WINDOW_MS
+          : false;
+
+      return {
+        device_id: camera.getDeviceId(),
+        source: camera.getSource(),
+        stream_url: camera.getStreamUrl() ?? null,
+        online,
+        last_seen_at: lastSeenAt ? lastSeenAt.toISOString() : null,
+      };
+    });
+  }
+
+  // A phone is online while its session is active, model-api reports it
+  // connected, and the last heartbeat is recent.
+  private isPhoneOnline(camera: Device, now: number): boolean {
+    const lastSeenAt = camera.getLastSeenAt();
+    const expiresAt = camera.getSessionExpiresAt();
+
+    return (
+      camera.isConnected() &&
+      camera.getActiveSessionId() !== null &&
+      expiresAt !== null &&
+      expiresAt.getTime() > now &&
+      lastSeenAt !== undefined &&
+      now - lastSeenAt.getTime() <= PHONE_PRESENCE_TIMEOUT_MS
+    );
+  }
+
   // *** GET ASSIGNED USER ID BY DEVICE ID - USER ***
   async findAssignedUserByDeviceId(deviceId: string): Promise<string> {
     DeviceId.isEmpty(deviceId);
@@ -151,6 +217,22 @@ export class DevicesService {
   // *** GET DEVICE IDS BY ASSIGNED USER ID - USER ***
   async findDeviceIdsByAssignedUser(assignedUserId: string): Promise<string[]> {
     return await this.deviceRepository.findDeviceIdsByAssignedUser(assignedUserId);
+  }
+
+  // *** GET CAMERAS PAIRED WITH A BUTTON (NON-THROWING) - SERVICE ***
+  // Button and camera are linked only through their shared owner. An unknown or
+  // unclaimed button has no owner and therefore no cameras. Phone cameras are
+  // left out: button capture is an ESP32 feature.
+  async findPairedCameraIds(buttonId: string): Promise<string[]> {
+    DeviceId.isEmpty(buttonId);
+
+    const ownerId = await this.deviceRepository.findAssignedUserIdByDeviceId(buttonId);
+
+    if (!ownerId) {
+      return [];
+    }
+
+    return await this.deviceRepository.findCameraIdsByAssignedUser(ownerId);
   }
 
   // *** GET OWNER ID BY DEVICE ID (NON-THROWING) ***

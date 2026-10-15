@@ -26,7 +26,11 @@ Copy-Item .env.example .env
 | `FIREBASE_CLIENT_EMAIL` | email string | `firebase-adminsdk-...@...iam.gserviceaccount.com` | Firebase service account client email. |
 | `FIREBASE_PRIVATE_KEY` | string | `"-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"` | Firebase service account private key. Keep the escaped `\n` characters in `.env`. |
 | `ABLY_API_KEY` | string | `appId.keyId:keySecret` | Ably API key used by the shared REST client. See [Ably](ably.md). |
-| `DEVICE_ABLY_ISSUER_API_KEY` | string | `appId.keyId:keySecret` | Required server-only key used to issue hardware publisher tokens. Must allow `publish` on `rideguard:buttons:device:*`. |
+| `UPSTREAM_ABLY_API_KEY` | string | `appId.keyId:keySecret` | Ably key used by the backend realtime subscriber. |
+| `DEVICE_ABLY_ISSUER_API_KEY` | string | `appId.keyId:keySecret` | Required server-only key used to issue hardware publisher tokens. Must allow `publish` on `rideguard:buttons:device`. |
+| `DEVICE_RESOLVER_SERVICE_KEY` | string | `replace-with-a-16-character-secret` | Shared key used by model-api for device camera lookup. |
+| `THROTTLE_TTL` | number | `60000` | Rate-limit window in milliseconds. |
+| `THROTTLE_LIMIT` | number | `100` | Maximum requests per client in the window. |
 
 ## How Validation Works
 
@@ -44,6 +48,11 @@ export interface EnvironmentVariables {
   FIREBASE_CLIENT_EMAIL: string;
   FIREBASE_PRIVATE_KEY: string;
   ABLY_API_KEY: string;
+  UPSTREAM_ABLY_API_KEY: string;
+  DEVICE_ABLY_ISSUER_API_KEY: string;
+  DEVICE_RESOLVER_SERVICE_KEY: string;
+  THROTTLE_TTL: number;
+  THROTTLE_LIMIT: number;
 }
 ```
 
@@ -74,6 +83,20 @@ export const envValidationSchema = Joi.object<EnvironmentVariables, true>({
     .required()
     .pattern(ABLY_API_KEY_PATTERN)
     .message('ABLY_API_KEY must look like appId.keyId:keySecret'),
+
+  UPSTREAM_ABLY_API_KEY: Joi.string()
+    .required()
+    .pattern(ABLY_API_KEY_PATTERN)
+    .message('UPSTREAM_ABLY_API_KEY must look like appId.keyId:keySecret'),
+
+  DEVICE_ABLY_ISSUER_API_KEY: Joi.string()
+    .required()
+    .pattern(ABLY_API_KEY_PATTERN)
+    .message('DEVICE_ABLY_ISSUER_API_KEY must look like appId.keyId:keySecret'),
+
+  DEVICE_RESOLVER_SERVICE_KEY: Joi.string().required().min(16),
+  THROTTLE_TTL: Joi.number().integer().positive().default(60000),
+  THROTTLE_LIMIT: Joi.number().integer().positive().default(100),
 });
 ```
 

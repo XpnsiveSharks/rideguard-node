@@ -9,6 +9,7 @@ export class AlertsMapper {
       deviceId: alert.alertFields.deviceId.toString(),
       message: alert.getMessage(),
       imageUrl: alert.getImageUrl(),
+      videoUrl: alert.getVideoUrl(),
       timeStamp: alert.getTimeStamp(),
       isFalseAlarm: alert.getIsFalseAlarm(),
       isSeen: alert.getIsSeen(),
