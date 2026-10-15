@@ -31,6 +31,7 @@ export type InferenceAlertInput = {
   deviceId: string;
   capturedAt: Date;
   imageUrl: string | null;
+  videoUrl: string | null;
   weaponLabels: string[];
   hasFreshViolence: boolean;
   /** Only v2 producers publish negative observations as well as positives. */
@@ -190,11 +191,14 @@ export class InferenceAlertsRepository {
         deviceId,
         message:
           weaponConfirmed && input.hasFreshViolence
-            ? 'Violence and weapon detected'
+            ? 'Possible violence and weapon detected'
             : weaponConfirmed
               ? 'Weapon detected'
-              : 'Violence detected',
+              : 'Possible violence detected',
         imageUrl: input.imageUrl,
+        // Media never independently qualifies a threat: only attach the clip
+        // when this alert actually includes qualifying violence.
+        videoUrl: threats.includes('violence') ? input.videoUrl : null,
         timeStamp: capturedAt,
         isFalseAlarm: false,
         isSeen: false,

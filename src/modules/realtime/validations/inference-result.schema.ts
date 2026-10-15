@@ -4,6 +4,7 @@ import type {
   DetectedObject,
   InferenceImage,
   InferenceResult,
+  InferenceVideo,
   ViolenceResult,
 } from '../types/inference-result';
 
@@ -53,6 +54,41 @@ const inferenceImageSchema = Joi.alternatives<InferenceImage>().try(
   failedImageSchema,
 );
 
+const uploadedVideoSchema = Joi.object({
+  status: Joi.string().valid('uploaded').required(),
+  provider: Joi.string().valid('cloudinary').required(),
+
+  url: Joi.string()
+    .uri({ scheme: ['https'] })
+    .required(),
+
+  public_id: Joi.string().trim().required(),
+  format: Joi.string().valid('mp4').required(),
+  frame_count: Joi.number().integer().positive().required(),
+
+  started_at: Joi.string().isoDate().required(),
+  ended_at: Joi.string().isoDate().required(),
+})
+  .unknown(false)
+  // Ordered timestamps: the clip cannot end before it started. A plain string
+  // comparison would sort lexicographically, not chronologically.
+  .custom((value: { started_at: string; ended_at: string }, helpers) => {
+    if (new Date(value.ended_at).getTime() < new Date(value.started_at).getTime()) {
+      return helpers.error('any.invalid');
+    }
+    return value;
+  }, 'ended_at not before started_at');
+
+const unavailableVideoSchema = Joi.object({
+  status: Joi.string().valid('unavailable').required(),
+  url: Joi.any().valid(null).required(),
+}).unknown(false);
+
+const inferenceVideoSchema = Joi.alternatives<InferenceVideo>().try(
+  uploadedVideoSchema,
+  unavailableVideoSchema,
+);
+
 const violenceResultSchema = Joi.object<ViolenceResult>({
   alert_eligible: Joi.boolean(),
   inference_ran: Joi.boolean().required(),
@@ -86,6 +122,7 @@ export const inferenceResultSchema = Joi.object<InferenceResult>({
     then: violenceResultSchema.keys({ alert_eligible: Joi.boolean().required() }),
   }),
   image: inferenceImageSchema.allow(null).required(),
+  video: inferenceVideoSchema.allow(null),
 })
   .required()
   .unknown(false);
