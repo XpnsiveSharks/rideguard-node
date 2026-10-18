@@ -40,4 +40,19 @@ export class ProfileRepository {
     const docSnapshot = await docRef.get();
     return !docSnapshot.exists ? false : true;
   }
+
+  async getProfile(uid: string): Promise<Record<string, unknown> | null> {
+    const snapshot = await this.firestoreClient.collection(PROFILES_COLLECTION).doc(uid).get();
+    return snapshot.exists ? (snapshot.data() as Record<string, unknown>) : null;
+  }
+
+  async updateProfilePhoto(
+    uid: string,
+    photo: { photo_url: string; public_id: string },
+  ): Promise<void> {
+    await this.firestoreClient
+      .collection(PROFILES_COLLECTION)
+      .doc(uid)
+      .set({ ...photo, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  }
 }
