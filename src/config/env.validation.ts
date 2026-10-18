@@ -12,6 +12,9 @@ export interface EnvironmentVariables {
   FIREBASE_PROJECT_ID: string;
   FIREBASE_CLIENT_EMAIL: string;
   FIREBASE_PRIVATE_KEY: string;
+  CLOUDINARY_CLOUD_NAME: string;
+  CLOUDINARY_API_KEY: string;
+  CLOUDINARY_API_SECRET: string;
   ABLY_API_KEY: string;
   DEVICE_ABLY_ISSUER_API_KEY: string;
   UPSTREAM_ABLY_API_KEY: string;
@@ -43,6 +46,9 @@ export const envValidationSchema = Joi.object<EnvironmentVariables, true>({
     .required()
     .pattern(/-----BEGIN PRIVATE KEY-----/)
     .message('FIREBASE_PRIVATE_KEY must be a PEM-encoded private key'),
+  CLOUDINARY_CLOUD_NAME: Joi.string().required(),
+  CLOUDINARY_API_KEY: Joi.string().required(),
+  CLOUDINARY_API_SECRET: Joi.string().required(),
 
   ABLY_API_KEY: Joi.string()
     .required()
