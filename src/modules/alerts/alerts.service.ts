@@ -11,6 +11,7 @@ import { PinoLogger } from 'nestjs-pino';
 import { DevicesService } from '../devices/devices.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PushNotification } from '../notifications/domain/push-notification.value-object';
+import { SettingsService } from '../settings/settings.service';
 @Injectable()
 export class AlertsService {
   constructor(
@@ -19,6 +20,7 @@ export class AlertsService {
     private readonly logger: PinoLogger,
     private readonly diviceService: DevicesService,
     private readonly notificationsService: NotificationsService,
+    private readonly settingsService: SettingsService,
   ) {}
 
   // *** CREATE ALERT - REALTIME INFERENCE ***
@@ -79,10 +81,37 @@ export class AlertsService {
     assignedUserId: string,
     limit: number,
     cursor?: string,
+    status?: 'active' | 'archived',
   ): Promise<{ data: Alert[]; nextCursor: string | null }> {
     const deviceIds = await this.diviceService.findDeviceIdsByAssignedUser(assignedUserId);
 
-    return await this.alertsRepository.findNonFalseAlarmsByDeviceId(deviceIds, limit, cursor);
+    const { data, nextCursor } = await this.alertsRepository.findNonFalseAlarmsByDeviceId(
+      deviceIds,
+      limit,
+      cursor,
+      status,
+    );
+
+    const { autoArchiveHours } = await this.settingsService.getAutoArchive(assignedUserId);
+
+    const alertsWithArchiveAt = data.map((alert) => {
+      let archiveAt: Date | null = null;
+      if (alert.getIsArchived()) {
+        archiveAt = alert.getArchivedAt();
+      } else if (autoArchiveHours !== null) {
+        archiveAt = new Date(alert.getCreatedAt().getTime() + autoArchiveHours * 3600 * 1000);
+      }
+
+      return Alert.create({
+        ...alert.alertFields,
+        archiveAt,
+      });
+    });
+
+    return {
+      data: alertsWithArchiveAt,
+      nextCursor,
+    };
   }
 
   // *** UPDATE ALERT SEEN STATUS - USER ***

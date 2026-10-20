@@ -200,8 +200,11 @@ export class InferenceAlertsRepository {
         // when this alert actually includes qualifying violence.
         videoUrl: threats.includes('violence') ? input.videoUrl : null,
         timeStamp: capturedAt,
+        createdAt: processedAt,
         isFalseAlarm: false,
         isSeen: false,
+        isArchived: false,
+        archivedAt: null,
       });
 
       transaction.create(alertRef, AlertsMapper.toPersistence(alert));

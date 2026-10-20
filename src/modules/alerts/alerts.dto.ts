@@ -1,5 +1,6 @@
 import {
   IsBoolean,
+  IsIn,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -33,4 +34,8 @@ export class GetAlertsQueryDto {
   @MaxLength(1500)
   @Matches(/^[^/]+$/, { message: 'cursor must be a valid alert ID' })
   cursor?: string;
+
+  @IsOptional()
+  @IsIn(['active', 'archived'])
+  status?: 'active' | 'archived';
 }
