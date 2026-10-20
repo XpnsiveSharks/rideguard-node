@@ -5,7 +5,19 @@ export class Alert {
   constructor(public readonly alertFields: AlertFields) {}
 
   public static create(alertFields: AlertFields): Alert {
-    const { deviceId, message, imageUrl, videoUrl, timeStamp, isFalseAlarm, isSeen } = alertFields;
+    const {
+      deviceId,
+      message,
+      imageUrl,
+      videoUrl,
+      timeStamp,
+      isFalseAlarm,
+      isSeen,
+      createdAt,
+      isArchived,
+      archivedAt,
+      archiveAt,
+    } = alertFields;
     const trimmedMessage = trimmed(message, 'message');
 
     return new Alert({
@@ -17,8 +29,12 @@ export class Alert {
       // that to null rather than leaking undefined to clients.
       videoUrl: videoUrl ?? null,
       timeStamp,
+      createdAt: createdAt ?? timeStamp,
       isFalseAlarm,
       isSeen,
+      isArchived: isArchived ?? false,
+      archivedAt: archivedAt ?? null,
+      archiveAt: archiveAt ?? null,
     });
   }
 
@@ -40,12 +56,28 @@ export class Alert {
     return this.alertFields.timeStamp;
   }
 
+  getCreatedAt(): Date {
+    return this.alertFields.createdAt ?? this.getTimeStamp();
+  }
+
   getIsFalseAlarm(): boolean {
     return this.alertFields.isFalseAlarm;
   }
 
   getIsSeen(): boolean {
     return this.alertFields.isSeen;
+  }
+
+  getIsArchived(): boolean {
+    return this.alertFields.isArchived ?? false;
+  }
+
+  getArchivedAt(): Date | null {
+    return this.alertFields.archivedAt ?? null;
+  }
+
+  getArchiveAt(): Date | null {
+    return this.alertFields.archiveAt ?? null;
   }
 }
 
@@ -56,6 +88,10 @@ export type AlertFields = {
   imageUrl?: string | null | undefined;
   videoUrl?: string | null | undefined;
   timeStamp: Date;
+  createdAt?: Date;
   isFalseAlarm: boolean;
   isSeen: boolean;
+  isArchived?: boolean;
+  archivedAt?: Date | null;
+  archiveAt?: Date | null;
 };

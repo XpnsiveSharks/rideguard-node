@@ -18,6 +18,7 @@ import { DevicesModule } from './modules/devices/devices.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { AlertsModule } from './modules/alerts/alerts.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { SettingsModule } from './modules/settings/settings.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     RealtimeModule,
     AlertsModule,
     NotificationsModule,
+    SettingsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

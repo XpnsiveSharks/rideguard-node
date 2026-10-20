@@ -22,6 +22,7 @@ export interface EnvironmentVariables {
   PHONE_SESSION_MAX_DURATION_MS: number;
   THROTTLE_TTL: number;
   THROTTLE_LIMIT: number;
+  AUTO_ARCHIVE_ENABLED: boolean;
 }
 
 const ABLY_API_KEY_PATTERN = /^[\w-]+\.[\w-]+:[\w=-]+$/;
@@ -75,4 +76,8 @@ export const envValidationSchema = Joi.object<EnvironmentVariables, true>({
 
   THROTTLE_TTL: Joi.number().integer().positive().default(60000), // Default length in milliseconds
   THROTTLE_LIMIT: Joi.number().integer().positive().default(100), // Default max requests a single client gets within that window.
+
+  // Gates the background auto-archive pass. Kept off until existing alerts are
+  // backfilled with createdAt/isArchived and the composite indexes are built.
+  AUTO_ARCHIVE_ENABLED: Joi.boolean().default(false),
 });

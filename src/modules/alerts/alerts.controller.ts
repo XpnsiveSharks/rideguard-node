@@ -23,12 +23,13 @@ export class AlertsController {
   async getAlertsByAssignedUserId(@Req() req: Request, @Query() query: GetAlertsQueryDto) {
     const assignedUserId = req.user?.uid;
     if (!assignedUserId) {
-      throw new Error('User ID is missing or invalid.');
+      throw new UnauthorizedException('User ID is missing or invalid.');
     }
     return await this.alertsService.getAlertsByAssignedUserId(
       assignedUserId,
       query.limit,
       query.cursor,
+      query.status,
     );
   }
 
