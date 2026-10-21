@@ -11,12 +11,54 @@ http://localhost:5565/v1
 
 ## Shared Behavior
 
-All routes require a Firebase ID
-token because `FirebaseAuthGuard` is registered globally.
+Protected routes require a Firebase ID token because `FirebaseAuthGuard` is
+registered globally. The credential routes below are public.
 
 ```http
 Authorization: Bearer <firebase-id-token>
 ```
+
+## POST /v1/auth/register
+
+Creates an unverified Firebase email/password user and sends a Firebase
+verification link through the configured email transport. No RideGuard profile
+is created until verification.
+
+```json
+{
+  "username": "jane.driver",
+  "email": "jane@gmail.com",
+  "password": "Password1"
+}
+```
+
+Returns `202` with `{ "email": "jane@gmail.com" }` in `data`. Usernames are
+case-insensitive, 3–24 characters, and use only letters, numbers, periods, or
+underscores. Gmail is required. Passwords need at least eight characters, one
+letter, and one number.
+
+## POST /v1/auth/login
+
+Accepts `{ "identifier": "jane.driver", "password": "Password1" }`. The
+identifier can be a username or email. Success returns `200` with the Firebase
+`uid` and email in `data`. Wrong credentials always return the same `401`
+message.
+
+## POST /v1/auth/register/verify
+
+The client applies the Firebase verification link, refreshes the Firebase user,
+and sends its fresh verified ID token in `Authorization: Bearer <id-token>`.
+There is no request body. The endpoint returns `200` with `{ uid, email }` in
+`data` and creates the RideGuard profile.
+
+## POST /v1/auth/forgot-password
+
+Accepts `{ "email": "jane@gmail.com" }` and returns `200` with the same generic
+message whether the account exists or not. It is rate-limited by IP and email.
+
+Firebase sends the password-reset link. The client or Firebase-hosted handler
+applies that link and sets the new password. RideGuard has no reset OTP or
+password-reset action-code endpoint.
 
 ## GET /v1/auth/me
 
