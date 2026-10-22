@@ -1,6 +1,6 @@
 import type { Auth, DecodedIdToken } from 'firebase-admin/auth';
 import type { Firestore } from 'firebase-admin/firestore';
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { WebPortalService } from './web-portal.service';
 
 const responder = {
@@ -43,6 +43,31 @@ function makeStore() {
     web_audit: {},
   };
   const firestore = {
+    runTransaction<T>(
+      callback: (transaction: {
+        get: (ref: {
+          get: () => Promise<{ exists: boolean; data: () => Record<string, unknown> | undefined }>;
+        }) => Promise<{ exists: boolean; data: () => Record<string, unknown> | undefined }>;
+        update: (
+          ref: { update: (value: Record<string, unknown>) => Promise<void> },
+          value: Record<string, unknown>,
+        ) => void;
+        create: (
+          ref: { create: (value: Record<string, unknown>) => Promise<void> },
+          value: Record<string, unknown>,
+        ) => void;
+      }) => Promise<T>,
+    ) {
+      return callback({
+        get: (ref) => ref.get(),
+        update: (ref, value) => {
+          void ref.update(value);
+        },
+        create: (ref, value) => {
+          void ref.create(value);
+        },
+      });
+    },
     batch() {
       const operations: Array<() => void> = [];
       return {
@@ -128,6 +153,69 @@ function makeStore() {
 }
 
 describe('web portal server authorization', () => {
+  it('persists an application, rejects duplicates, and records an administrator decision without granting access', async () => {
+    const { records, service } = makeStore();
+    const application = {
+      name: 'Barangay 35',
+      type: 'barangay' as const,
+      region: 'Metro Manila',
+      city: 'Caloocan City',
+      barangay: 'Barangay 35',
+      address: 'Fictional office address',
+      phone: '09123456789',
+      officialEmail: 'barangay35@demo.rideguard.local',
+      representative: 'Ana Reyes',
+      position: 'Representative',
+      representativePhone: '09123456789',
+      representativeEmail: 'ana@demo.rideguard.local',
+      verificationInfo: 'Fictional thesis application for tests',
+    };
+    const submitted = await service.submitApplication(application);
+    expect(submitted.status).toBe('pending');
+    expect(submitted.reference).toMatch(/^RG-ORG-/);
+    await expect(service.submitApplication(application)).rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      service.reviewApplication(responder, submitted.id, { status: 'approved' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.reviewApplication(admin, submitted.id, { status: 'approved' }),
+    ).resolves.toMatchObject({ status: 'approved', activationStatus: 'awaiting_account_setup' });
+    expect(records.web_organizations[submitted.id].status).toBe('active');
+    expect(records.web_applications[submitted.id].reviewedBy).toBe('admin-a');
+    const applicant = {
+      uid: 'applicant-a',
+      email: application.officialEmail,
+      email_verified: true,
+      role: 'organization_manager',
+    } as unknown as DecodedIdToken;
+    await expect(service.session(applicant)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('persists an assigned incident transition and note but rejects cross-organization updates', async () => {
+    const { records, service } = makeStore();
+    records.web_incidents['incident-a'] = {
+      id: 'incident-a',
+      organizationId: 'org-a',
+      status: 'new',
+      type: 'sos',
+      createdAt: '',
+      timeline: [],
+      notes: [],
+    };
+    await expect(
+      service.transitionIncident(responder, 'incident-b', { status: 'acknowledged' }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.transitionIncident(responder, 'incident-a', { status: 'acknowledged' }),
+    ).resolves.toMatchObject({ status: 'acknowledged' });
+    await expect(
+      service.addNote(responder, 'incident-a', 'Responder en route'),
+    ).resolves.toMatchObject({ notes: [expect.objectContaining({ text: 'Responder en route' })] });
+    expect((records.web_incidents['incident-a'].timeline as unknown[]).length).toBe(1);
+    await expect(
+      service.transitionIncident(responder, 'incident-a', { status: 'closed' }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
   it('requires an active, matching organization membership for a web session', async () => {
     const { records, service } = makeStore();
     await expect(service.session(responder)).resolves.toMatchObject({
