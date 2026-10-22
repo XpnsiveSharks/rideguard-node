@@ -1,0 +1,10 @@
+export const MPIN_ACCOUNTS = 'mpinAccounts';
+export const MPIN_CHALLENGES = 'mpinChallenges';
+export const MPIN_GRANTS = 'mpinGrants';
+export const MPIN_ATTEMPT_LIMIT = 5;
+export const MPIN_LOCK_MS = 15 * 60 * 1000;
+export const MPIN_UNLOCK_MS = 15 * 60 * 1000;
+export const MPIN_GRANT_MS = 10 * 60 * 1000;
+export const MPIN_CODE_MS = 10 * 60 * 1000;
+export const MPIN_RESEND_MS = 60 * 1000;
+export const MPIN_CODE_ATTEMPT_LIMIT = 5;
