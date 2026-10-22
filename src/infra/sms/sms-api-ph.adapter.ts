@@ -9,21 +9,29 @@ import {
   SMS_API_PH_SEND_PATH,
 } from './sms.constants';
 
-// The one error envelope shape confirmed by a live probe against
+// Error envelope confirmed by a live probe against
 // https://smsapiph.onrender.com on 2026-10-22 (missing/malformed
-// credentials): `{ success: false, error: string }`. The success response
-// shape has not been confirmed against a real account, so parsing it stays
-// defensive until it is.
+// credentials): `{ success: false, error: string }`.
+//
+// Success envelope confirmed by one live, authorized, approved test send on
+// 2026-10-22 (real account, real recipient): `{ success: true, message:
+// "Message sent successfully" }`. No `messageId`/`id` field was present on
+// that response - this endpoint may simply not return one. `messageId`/`id`
+// stay in the type as a defensive guess in case a different response
+// (e.g. a different status, or a future provider version) does include one;
+// `extractProviderMessageId` already handles their absence correctly.
 //
 // The documented provider also advertises "automatic email/push fallback".
-// The field name it would use to report that on a successful send is
-// unverified, so CHANNEL_FIELD_KEYS/FALLBACK_FIELD_KEYS below are a
-// best-effort guess, not a confirmed contract. The intersection with
+// That one verified send did not go through fallback (no channel/fallback
+// field appeared), so CHANNEL_FIELD_KEYS/FALLBACK_FIELD_KEYS below remain an
+// unverified best-effort guess, not a confirmed contract - there is no
+// fallback example to check them against yet. The intersection with
 // `Record<string, unknown>` lets `toResult` check those unverified fields
 // without assuming a fixed shape.
 type SmsApiPhResponseBody = {
   success?: boolean;
   error?: string;
+  message?: string;
   messageId?: string;
   id?: string;
 } & Record<string, unknown>;

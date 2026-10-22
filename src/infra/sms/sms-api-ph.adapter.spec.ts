@@ -69,6 +69,22 @@ describe('SmsApiPhAdapter.send', () => {
     expect(result).toEqual({ outcome: 'accepted', providerMessageId: undefined });
   });
 
+  it('reports accepted on the exact body confirmed by a live test send on 2026-10-22', async () => {
+    // Real response from an authorized, approved, one-time live send:
+    // HTTP 200, { success: true, message: "Message sent successfully" }.
+    // No messageId/id field was present.
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(200, { success: true, message: 'Message sent successfully' }),
+      );
+
+    const adapter = new SmsApiPhAdapter(fakeConfig());
+    const result = await adapter.send({ recipient: VALID_RECIPIENT, message: VALID_MESSAGE });
+
+    expect(result).toEqual({ outcome: 'accepted', providerMessageId: undefined });
+  });
+
   it('still reports accepted when a channel field explicitly confirms sms', async () => {
     global.fetch = jest
       .fn()
