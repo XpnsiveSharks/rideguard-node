@@ -14,12 +14,25 @@ import {
 // credentials): `{ success: false, error: string }`. The success response
 // shape has not been confirmed against a real account, so parsing it stays
 // defensive until it is.
+//
+// The documented provider also advertises "automatic email/push fallback".
+// The field name it would use to report that on a successful send is
+// unverified, so CHANNEL_FIELD_KEYS/FALLBACK_FIELD_KEYS below are a
+// best-effort guess, not a confirmed contract. The intersection with
+// `Record<string, unknown>` lets `toResult` check those unverified fields
+// without assuming a fixed shape.
 type SmsApiPhResponseBody = {
   success?: boolean;
   error?: string;
   messageId?: string;
   id?: string;
-};
+} & Record<string, unknown>;
+
+// Field names that might carry the channel actually used, if the provider's
+// email/push fallback fires. Unverified - see the type comment above.
+const CHANNEL_FIELD_KEYS = ['channel', 'deliveryChannel', 'sentVia', 'via', 'method'] as const;
+// Boolean field names that might flag a fallback send directly.
+const FALLBACK_FIELD_KEYS = ['fallback', 'isFallback', 'usedFallback'] as const;
 
 // Sends one SMS through SMS API PH. This adapter only talks to that
 // provider: authentication, payload mapping, and response/error parsing all
@@ -122,8 +135,12 @@ export class SmsApiPhAdapter implements SmsSender {
     }
 
     if (response.status >= 500) {
-      this.logger.warn(`SMS API PH server error (HTTP ${response.status})`);
-      return { outcome: 'rejected', reason: SmsRejectionReason.PROVIDER_ERROR, retryable: true };
+      // A 5xx is a server-side error, not a confirmed pre-send rejection: an
+      // HTTP error alone does not prove the provider rejected the message
+      // before submission (it could have failed after queueing it). Report
+      // 'unknown' so a caller does not blindly resend and risk a duplicate.
+      this.logger.warn(`SMS API PH outcome unknown: server error (HTTP ${response.status})`);
+      return { outcome: 'unknown', reason: 'server_error' };
     }
 
     const body = await this.readBody(response);
@@ -133,11 +150,34 @@ export class SmsApiPhAdapter implements SmsSender {
     // `success` field, or a body that didn't parse as JSON - is not a
     // confirmed outcome, so it is never reported as accepted.
     if (response.ok && body?.success === true) {
+      if (this.indicatesNonSmsChannel(body)) {
+        // The provider's documented email/push fallback appears to have
+        // fired. "Accepted" means an SMS send; do not report fallback
+        // delivery as one.
+        this.logger.warn(
+          'SMS API PH reported success through a non-SMS channel; not reporting as SMS delivery',
+        );
+        return { outcome: 'unknown', reason: 'unconfirmed_channel' };
+      }
       return { outcome: 'accepted', providerMessageId: this.extractProviderMessageId(body) };
     }
 
     this.logger.warn(`SMS API PH returned an unrecognized response (HTTP ${response.status})`);
     return { outcome: 'unknown', reason: 'malformed_response' };
+  }
+
+  // Best-effort check for the provider's documented email/push fallback.
+  // Field names are unverified (see the type comment on
+  // SmsApiPhResponseBody); this stays defensive until a real account
+  // confirms the actual contract.
+  private indicatesNonSmsChannel(body: SmsApiPhResponseBody): boolean {
+    for (const key of CHANNEL_FIELD_KEYS) {
+      const value = body[key];
+      if (typeof value === 'string' && !/sms/i.test(value)) {
+        return true;
+      }
+    }
+    return FALLBACK_FIELD_KEYS.some((key) => body[key] === true);
   }
 
   private async readBody(response: Response): Promise<SmsApiPhResponseBody | undefined> {

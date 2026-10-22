@@ -14,7 +14,6 @@ export const SmsRejectionReason = {
   AUTHENTICATION_FAILED: 'authentication_failed',
   INVALID_INPUT: 'invalid_input',
   RATE_LIMITED: 'rate_limited',
-  PROVIDER_ERROR: 'provider_error',
 } as const;
 
 export type SmsRejectionReason = (typeof SmsRejectionReason)[keyof typeof SmsRejectionReason];
@@ -26,11 +25,22 @@ export type SmsRejectionReason = (typeof SmsRejectionReason)[keyof typeof SmsRej
 // - 'rejected': the provider (or local validation) definitely did not send
 //   it. Safe to surface as a failure; retryable says whether the exact same
 //   request may succeed later without caller changes.
-// - 'unknown': a timeout or connection loss happened after submission, or the
-//   response could not be parsed as a known success/error shape. The message
-//   may or may not have reached the provider. Callers must not blindly
-//   resend without their own idempotency/reconciliation handling.
+// - 'unknown': a timeout or connection loss happened after submission, the
+//   response could not be parsed as a known success/error shape, the
+//   provider returned a server error, or a reported "success" could not be
+//   confirmed as an actual SMS send. The message may or may not have reached
+//   a handset. Callers must not blindly resend without their own
+//   idempotency/reconciliation handling.
+//
+// A server error (5xx) is deliberately 'unknown', not 'rejected': an HTTP
+// error alone does not prove the provider rejected the message before
+// submission, so treating it as a confirmed rejection risks a false
+// rejection and an unsafe blind retry.
 export type SmsSendResult =
   | { outcome: 'accepted'; providerMessageId?: string }
   | { outcome: 'rejected'; reason: SmsRejectionReason; retryable: boolean; retryAfterMs?: number }
-  | { outcome: 'unknown'; reason: 'timeout' | 'network_error' | 'malformed_response' };
+  | {
+      outcome: 'unknown';
+      reason:
+        'timeout' | 'network_error' | 'malformed_response' | 'server_error' | 'unconfirmed_channel';
+    };

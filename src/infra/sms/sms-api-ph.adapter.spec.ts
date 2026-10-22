@@ -69,6 +69,48 @@ describe('SmsApiPhAdapter.send', () => {
     expect(result).toEqual({ outcome: 'accepted', providerMessageId: undefined });
   });
 
+  it('still reports accepted when a channel field explicitly confirms sms', async () => {
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(jsonResponse(200, { success: true, channel: 'sms', messageId: 'id-1' }));
+
+    const adapter = new SmsApiPhAdapter(fakeConfig());
+    const result = await adapter.send({ recipient: VALID_RECIPIENT, message: VALID_MESSAGE });
+
+    expect(result).toEqual({ outcome: 'accepted', providerMessageId: 'id-1' });
+  });
+
+  it.each(['channel', 'deliveryChannel', 'sentVia', 'via', 'method'])(
+    "does not report accepted when success:true but '%s' names a non-sms channel",
+    async (field) => {
+      global.fetch = jest
+        .fn()
+        .mockResolvedValue(
+          jsonResponse(200, { success: true, [field]: 'email', messageId: 'id-1' }),
+        );
+
+      const adapter = new SmsApiPhAdapter(fakeConfig());
+      const result = await adapter.send({ recipient: VALID_RECIPIENT, message: VALID_MESSAGE });
+
+      // A provider fallback to email/push is not a confirmed SMS send.
+      expect(result).toEqual({ outcome: 'unknown', reason: 'unconfirmed_channel' });
+    },
+  );
+
+  it.each(['fallback', 'isFallback', 'usedFallback'])(
+    "does not report accepted when success:true but '%s' is true",
+    async (field) => {
+      global.fetch = jest
+        .fn()
+        .mockResolvedValue(jsonResponse(200, { success: true, [field]: true }));
+
+      const adapter = new SmsApiPhAdapter(fakeConfig());
+      const result = await adapter.send({ recipient: VALID_RECIPIENT, message: VALID_MESSAGE });
+
+      expect(result).toEqual({ outcome: 'unknown', reason: 'unconfirmed_channel' });
+    },
+  );
+
   it.each([401, 403])(
     'reports a non-retryable authentication rejection on HTTP %i',
     async (status) => {
@@ -116,16 +158,22 @@ describe('SmsApiPhAdapter.send', () => {
     expect(result).toEqual({ outcome: 'rejected', reason: 'invalid_input', retryable: false });
   });
 
-  it('reports a retryable provider-error rejection on HTTP 5xx', async () => {
-    global.fetch = jest
-      .fn()
-      .mockResolvedValue(jsonResponse(503, { success: false, error: 'down' }));
+  it.each([500, 503])(
+    'reports unknown/server_error on HTTP %i rather than a confirmed rejection',
+    async (status) => {
+      global.fetch = jest
+        .fn()
+        .mockResolvedValue(jsonResponse(status, { success: false, error: 'down' }));
 
-    const adapter = new SmsApiPhAdapter(fakeConfig());
-    const result = await adapter.send({ recipient: VALID_RECIPIENT, message: VALID_MESSAGE });
+      const adapter = new SmsApiPhAdapter(fakeConfig());
+      const result = await adapter.send({ recipient: VALID_RECIPIENT, message: VALID_MESSAGE });
 
-    expect(result).toEqual({ outcome: 'rejected', reason: 'provider_error', retryable: true });
-  });
+      // A 5xx does not prove the provider rejected the message before
+      // submission - it could have failed after queueing it - so this must
+      // never come back as 'rejected' (which would license a blind retry).
+      expect(result).toEqual({ outcome: 'unknown', reason: 'server_error' });
+    },
+  );
 
   it('reports unknown/malformed_response rather than false success when the body is not valid JSON', async () => {
     global.fetch = jest.fn().mockResolvedValue(new Response('not json', { status: 200 }));
