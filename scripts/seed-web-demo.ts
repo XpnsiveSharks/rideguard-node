@@ -175,7 +175,9 @@ async function main() {
     accuracyMeters: 25,
     capturedAt: new Date(now - 60_000).toISOString(),
     receivedAt: new Date(now - 60_000).toISOString(),
-    status: 'active',
+    status: 'ended',
+    simulationState: 'stopped',
+    sequence: 0,
     simulation: true,
   });
   console.log(

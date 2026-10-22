@@ -72,6 +72,11 @@ export class WebPortalController {
     return this.service.locations(req.user);
   }
 
+  @Post('demo/location/:action')
+  demoLocation(@Req() req: Request, @Param('action') action: string) {
+    return this.service.demoLocation(req.user, action);
+  }
+
   @Get('audit')
   audit(@Req() req: Request) {
     return this.service.audit(req.user);

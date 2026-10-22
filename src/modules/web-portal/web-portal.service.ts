@@ -27,6 +27,14 @@ const transitions: Record<string, string[]> = {
   cancelled: [],
 };
 
+const demoRoute = [
+  [14.661, 120.984],
+  [14.6615, 120.9844],
+  [14.6621, 120.985],
+  [14.6627, 120.9855],
+  [14.6632, 120.986],
+] as const;
+
 type WebIncident = {
   id: string;
   organizationId: string;
@@ -316,9 +324,11 @@ export class WebPortalService {
       .limit(100)
       .get();
     const candidates = snapshot.docs
-      .map((doc) => doc.data() as { status?: string; incidentId?: string })
+      .map((doc) => doc.data() as { status?: string; incidentId?: string; demo?: boolean })
       .filter(
-        (location) => location.status === 'active' && typeof location.incidentId === 'string',
+        (location) =>
+          (location.status === 'active' || location.demo === true) &&
+          typeof location.incidentId === 'string',
       );
     const authorized = await Promise.all(
       candidates.map(async (location) => {
@@ -332,6 +342,43 @@ export class WebPortalService {
       }),
     );
     return authorized.filter((location) => location !== null);
+  }
+
+  async demoLocation(user: DecodedIdToken | undefined, action: string) {
+    const isolated =
+      ['local', 'development'].includes(process.env.NODE_ENV || '') &&
+      process.env.RIDEGUARD_WEB_DEMO_SEED === 'true' &&
+      (Boolean(process.env.FIREBASE_AUTH_EMULATOR_HOST && process.env.FIRESTORE_EMULATOR_HOST) ||
+        Boolean(process.env.FIREBASE_PROJECT_ID?.toLowerCase().includes('demo')));
+    if (!isolated) throw new ForbiddenException('Location simulation is disabled.');
+    if (!['start', 'tick', 'pause', 'stop'].includes(action))
+      throw new BadRequestException('Unknown simulation action.');
+    const member = await this.membership(user);
+    if (member.organizationId !== 'demo-barangay-34')
+      throw new ForbiddenException('Location simulation is restricted to demo accounts.');
+    await this.authorizedIncident(user, 'RG-DEMO-003');
+    const ref = this.firestore.collection('web_locations').doc('RG-DEMO-LOCATION-003');
+    const snapshot = await ref.get();
+    const current = snapshot.data();
+    if (!snapshot.exists || current?.demo !== true || current.incidentId !== 'RG-DEMO-003')
+      throw new NotFoundException('Demo location unavailable.');
+    if (action === 'tick' && current.simulationState !== 'running')
+      throw new ConflictException('Start the simulation before advancing it.');
+    const previousSequence = typeof current.sequence === 'number' ? current.sequence : 0;
+    const nextSequence: number =
+      action === 'start' ? 0 : action === 'tick' ? previousSequence + 1 : previousSequence;
+    const point = demoRoute[nextSequence % demoRoute.length];
+    const moving = action === 'start' || action === 'tick';
+    const now = new Date().toISOString();
+    await ref.update({
+      simulationState: moving ? 'running' : action === 'pause' ? 'paused' : 'stopped',
+      status: moving ? 'active' : 'ended',
+      sequence: nextSequence,
+      latitude: point[0],
+      longitude: point[1],
+      ...(moving ? { capturedAt: now, receivedAt: now } : {}),
+    });
+    return (await ref.get()).data();
   }
 
   async audit(user?: DecodedIdToken) {

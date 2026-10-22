@@ -50,6 +50,10 @@ function makeStore() {
           return {
             get: () =>
               Promise.resolve({ exists: Boolean(collection[id]), data: () => collection[id] }),
+            update: (value: Record<string, unknown>) => {
+              collection[id] = { ...collection[id], ...value };
+              return Promise.resolve();
+            },
           };
         },
         limit() {
@@ -109,5 +113,69 @@ describe('web portal server authorization', () => {
     await expect(service.incident(admin, 'incident-b')).resolves.toMatchObject({
       id: 'incident-b',
     });
+  });
+
+  it('keeps the fictional location simulator scoped and marks stopped sharing as ended', async () => {
+    const { records, service } = makeStore();
+    const previous = {
+      NODE_ENV: process.env.NODE_ENV,
+      RIDEGUARD_WEB_DEMO_SEED: process.env.RIDEGUARD_WEB_DEMO_SEED,
+      FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID,
+    };
+    try {
+      await expect(service.demoLocation(responder, 'start')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      process.env.NODE_ENV = 'development';
+      process.env.RIDEGUARD_WEB_DEMO_SEED = 'true';
+      process.env.FIREBASE_PROJECT_ID = 'rideguard-demo-test';
+      records.web_organizations['demo-barangay-34'] = {
+        id: 'demo-barangay-34',
+        name: 'Demo unit',
+        status: 'active',
+      };
+      records.web_incidents['RG-DEMO-003'] = {
+        id: 'RG-DEMO-003',
+        organizationId: 'demo-barangay-34',
+        status: 'in_progress',
+        type: 'sos',
+        createdAt: '',
+        timeline: [],
+        notes: [],
+      };
+      records.web_locations['RG-DEMO-LOCATION-003'] = {
+        id: 'RG-DEMO-LOCATION-003',
+        incidentId: 'RG-DEMO-003',
+        organizationId: 'demo-barangay-34',
+        demo: true,
+        latitude: 14.661,
+        longitude: 120.984,
+        status: 'ended',
+        simulationState: 'stopped',
+      };
+      await expect(service.demoLocation(responder, 'start')).rejects.toBeInstanceOf(
+        ForbiddenException,
+      );
+      records.web_memberships['responder-a'].organizationId = 'demo-barangay-34';
+      await expect(service.demoLocation(responder, 'start')).resolves.toMatchObject({
+        status: 'active',
+        simulationState: 'running',
+        sequence: 0,
+      });
+      await expect(service.demoLocation(responder, 'tick')).resolves.toMatchObject({
+        status: 'active',
+        sequence: 1,
+        latitude: 14.6615,
+      });
+      await expect(service.demoLocation(responder, 'stop')).resolves.toMatchObject({
+        status: 'ended',
+        simulationState: 'stopped',
+      });
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
   });
 });
