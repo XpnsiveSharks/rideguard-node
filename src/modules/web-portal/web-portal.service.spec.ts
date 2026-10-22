@@ -94,6 +94,13 @@ describe('web portal server authorization', () => {
     await expect(service.applications(admin)).resolves.toEqual([]);
   });
 
+  it('rejects unverified administrator tokens from web data', async () => {
+    const { service } = makeStore();
+    const unverified = { ...admin, email_verified: false } as DecodedIdToken;
+    await expect(service.applications(unverified)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.incidents(unverified)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
   it('returns no cross-organization incident details', async () => {
     const { service } = makeStore();
     await expect(service.incident(responder, 'incident-b')).rejects.toBeInstanceOf(

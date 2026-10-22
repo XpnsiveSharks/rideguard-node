@@ -45,6 +45,7 @@ export class WebPortalService {
 
   private requireIdentity(user?: DecodedIdToken): DecodedIdToken {
     if (!user?.uid) throw new UnauthorizedException('Sign in required.');
+    if (!user.email_verified) throw new ForbiddenException('Verify your email before web access.');
     return user;
   }
 
@@ -78,7 +79,6 @@ export class WebPortalService {
 
   async session(user?: DecodedIdToken) {
     const actor = this.requireIdentity(user);
-    if (!actor.email_verified) throw new ForbiddenException('Verify your email before web access.');
     if (this.isAdmin(actor))
       return {
         user: {
@@ -317,16 +317,20 @@ export class WebPortalService {
       .get();
     const candidates = snapshot.docs
       .map((doc) => doc.data() as { status?: string; incidentId?: string })
-      .filter((location) => location.status === 'active' && typeof location.incidentId === 'string');
-    const authorized = await Promise.all(candidates.map(async (location) => {
-      try {
-        await this.authorizedIncident(user, location.incidentId!);
-        return location;
-      } catch (error) {
-        if (error instanceof NotFoundException) return null;
-        throw error;
-      }
-    }));
+      .filter(
+        (location) => location.status === 'active' && typeof location.incidentId === 'string',
+      );
+    const authorized = await Promise.all(
+      candidates.map(async (location) => {
+        try {
+          await this.authorizedIncident(user, location.incidentId!);
+          return location;
+        } catch (error) {
+          if (error instanceof NotFoundException) return null;
+          throw error;
+        }
+      }),
+    );
     return authorized.filter((location) => location !== null);
   }
 
