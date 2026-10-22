@@ -15,6 +15,7 @@ import { PhotoStorage } from './infrastructure/photo.storage';
 import { CONTACT_PHOTO_BUCKET_FOLDER, PROFILE_PHOTO_BUCKET_FOLDER } from './profile.constants';
 import { EmergencyContactDto, UpdateEmergencyContactDto } from './contacts.dto';
 import type { UploadedPhoto } from './profile.upload';
+import type { UpdateProfileDto } from './profile-update.dto';
 
 @Injectable()
 export class ProfileService {
@@ -80,6 +81,30 @@ export class ProfileService {
 
   async getProfile(uid: string) {
     return this.profileRepository.getProfile(uid);
+  }
+
+  async updateProfile(uid: string, input: UpdateProfileDto) {
+    if (!uid?.trim()) {
+      throw new UnauthorizedException('Unable to verify your account. Please sign in again.');
+    }
+    const hasAtLeastOneField =
+      input && Object.values(input).some((val) => val !== undefined);
+    if (!hasAtLeastOneField) {
+      throw new BadRequestException('At least one editable field must be provided');
+    }
+    // Email, uid, role, and verification state are deliberately absent from the DTO.
+    // Phone confirmation is planned here, but is temporarily disabled until the
+    // confirmation-code delivery service is available. Do not enable enforcement
+    // without adding an account-bound, expiring code challenge.
+    return this.profileRepository.updateEditableProfile(uid, {
+      ...(input.first_name !== undefined && { firstName: input.first_name.trim() }),
+      ...(input.last_name !== undefined && { lastName: input.last_name.trim() }),
+      ...(input.phone_number !== undefined && { phoneNumber: input.phone_number.trim() }),
+      ...(input.brand !== undefined && { brand: input.brand.trim() }),
+      ...(input.model !== undefined && { model: input.model.trim() }),
+      ...(input.plate_number !== undefined && { plateNumber: input.plate_number.trim() }),
+      ...(input.color !== undefined && { color: input.color.trim() }),
+    });
   }
 
   async uploadProfilePhoto(uid: string, file: UploadedPhoto) {

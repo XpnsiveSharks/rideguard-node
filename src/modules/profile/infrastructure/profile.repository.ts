@@ -1,4 +1,4 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException } from '@nestjs/common';
 import { Firestore } from 'firebase-admin/firestore';
 import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
 import { Profile } from '../domain/profile.entity';
@@ -57,6 +57,46 @@ export class ProfileRepository {
   async getProfile(uid: string): Promise<Record<string, unknown> | null> {
     const snapshot = await this.firestoreClient.collection(PROFILES_COLLECTION).doc(uid).get();
     return snapshot.exists ? (snapshot.data() as Record<string, unknown>) : null;
+  }
+
+  async updateEditableProfile(
+    uid: string,
+    input: Partial<{
+      firstName: string;
+      lastName: string;
+      phoneNumber: string;
+      brand: string;
+      model: string;
+      plateNumber: string;
+      color: string;
+    }>,
+  ): Promise<Record<string, unknown>> {
+    const ref = this.firestoreClient.collection(PROFILES_COLLECTION).doc(uid);
+    const snapshot = await ref.get();
+    if (!snapshot.exists) {
+      throw new NotFoundException('Profile does not exist');
+    }
+    const profile = snapshot.data() as Record<string, unknown>;
+    const personalInfo = (profile.personalInfo ?? {}) as Record<string, unknown>;
+    const vehicle = (profile.vehicle ?? {}) as Record<string, unknown>;
+    const nextPersonalInfo = {
+      ...personalInfo,
+      ...(input.firstName !== undefined && { firstName: input.firstName }),
+      ...(input.lastName !== undefined && { lastName: input.lastName }),
+      ...(input.phoneNumber !== undefined && { phoneNumber: input.phoneNumber }),
+    };
+    const nextVehicle = {
+      ...vehicle,
+      ...(input.brand !== undefined && { brand: input.brand }),
+      ...(input.model !== undefined && { model: input.model }),
+      ...(input.plateNumber !== undefined && { plateNumber: input.plateNumber }),
+      ...(input.color !== undefined && { color: input.color }),
+    };
+    await ref.set(
+      { personalInfo: nextPersonalInfo, vehicle: nextVehicle, updatedAt: FieldValue.serverTimestamp() },
+      { merge: true },
+    );
+    return { ...profile, personalInfo: nextPersonalInfo, vehicle: nextVehicle };
   }
 
   async updateProfilePhoto(
