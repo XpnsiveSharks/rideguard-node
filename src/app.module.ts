@@ -19,6 +19,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
 import { AlertsModule } from './modules/alerts/alerts.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { WebPortalModule } from './modules/web-portal/web-portal.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { SettingsModule } from './modules/settings/settings.module';
     AlertsModule,
     NotificationsModule,
     SettingsModule,
+    WebPortalModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
