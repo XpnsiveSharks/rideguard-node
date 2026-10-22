@@ -31,3 +31,12 @@ export class TransitionIncidentDto {
 export class IncidentNoteDto {
   @IsString() @MinLength(1) @MaxLength(2000) text!: string;
 }
+
+export class StaffRoleDto {
+  @IsIn(['organization_manager', 'organization_responder'])
+  role!: 'organization_manager' | 'organization_responder';
+}
+
+export class StaffStatusDto {
+  @IsIn(['active', 'suspended']) status!: 'active' | 'suspended';
+}

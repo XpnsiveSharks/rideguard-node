@@ -1,4 +1,4 @@
-import type { DecodedIdToken } from 'firebase-admin/auth';
+import type { Auth, DecodedIdToken } from 'firebase-admin/auth';
 import type { Firestore } from 'firebase-admin/firestore';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { WebPortalService } from './web-portal.service';
@@ -43,6 +43,31 @@ function makeStore() {
     web_audit: {},
   };
   const firestore = {
+    batch() {
+      const operations: Array<() => void> = [];
+      return {
+        update(
+          ref: { update: (value: Record<string, unknown>) => Promise<void> },
+          value: Record<string, unknown>,
+        ) {
+          operations.push(() => {
+            void ref.update(value);
+          });
+        },
+        create(
+          ref: { create: (value: Record<string, unknown>) => Promise<void> },
+          value: Record<string, unknown>,
+        ) {
+          operations.push(() => {
+            void ref.create(value);
+          });
+        },
+        commit: () => {
+          operations.forEach((operation) => operation());
+          return Promise.resolve();
+        },
+      };
+    },
     collection(name: string) {
       const collection = records[name];
       return {
@@ -52,6 +77,10 @@ function makeStore() {
               Promise.resolve({ exists: Boolean(collection[id]), data: () => collection[id] }),
             update: (value: Record<string, unknown>) => {
               collection[id] = { ...collection[id], ...value };
+              return Promise.resolve();
+            },
+            create: (value: Record<string, unknown>) => {
+              collection[id] = value;
               return Promise.resolve();
             },
           };
@@ -79,7 +108,23 @@ function makeStore() {
       };
     },
   } as unknown as Firestore;
-  return { records, service: new WebPortalService(firestore) };
+  const claims: Record<string, Record<string, unknown>> = {
+    'responder-a': { role: 'organization_responder' },
+  };
+  const auth = {
+    getUser: (uid: string) =>
+      Promise.resolve({
+        uid,
+        email: `${uid}@example.test`,
+        displayName: uid,
+        customClaims: claims[uid] || {},
+      }),
+    setCustomUserClaims: (uid: string, value: Record<string, unknown>) => {
+      claims[uid] = value;
+      return Promise.resolve();
+    },
+  } as unknown as Auth;
+  return { records, claims, service: new WebPortalService(firestore, auth) };
 }
 
 describe('web portal server authorization', () => {
@@ -177,5 +222,45 @@ describe('web portal server authorization', () => {
         else process.env[key] = value;
       }
     }
+  });
+
+  it('lets a manager change a same-organization role and blocks responder self-management', async () => {
+    const { records, claims, service } = makeStore();
+    records.web_memberships['manager-a'] = {
+      uid: 'manager-a',
+      organizationId: 'org-a',
+      role: 'organization_manager',
+      status: 'active',
+    };
+    records.web_memberships['outsider-b'] = {
+      uid: 'outsider-b',
+      organizationId: 'org-b',
+      role: 'organization_responder',
+      status: 'active',
+    };
+    const manager = {
+      uid: 'manager-a',
+      email: 'manager@example.test',
+      email_verified: true,
+      role: 'organization_manager',
+    } as unknown as DecodedIdToken;
+    await expect(service.staff(responder)).resolves.toHaveLength(2);
+    await expect(
+      service.changeStaffStatus(manager, 'outsider-b', 'suspended'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    await expect(
+      service.changeStaffRole(responder, 'manager-a', 'organization_responder'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.changeStaffRole(manager, 'manager-a', 'organization_responder'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      service.changeStaffRole(manager, 'responder-a', 'organization_manager'),
+    ).resolves.toMatchObject({ uid: 'responder-a', role: 'organization_manager' });
+    expect(records.web_memberships['responder-a'].role).toBe('organization_manager');
+    expect(claims['responder-a'].role).toBe('organization_manager');
+    expect(Object.values(records.web_audit)).toContainEqual(
+      expect.objectContaining({ action: 'web.staff.role_changed', actorId: 'manager-a' }),
+    );
   });
 });

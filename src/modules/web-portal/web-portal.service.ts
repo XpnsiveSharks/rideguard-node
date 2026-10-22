@@ -7,10 +7,10 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import type { DecodedIdToken } from 'firebase-admin/auth';
+import type { Auth, DecodedIdToken } from 'firebase-admin/auth';
 import type { Firestore } from 'firebase-admin/firestore';
 import { createHash, randomUUID } from 'crypto';
-import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
+import { FIREBASE_AUTH, FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
 import type {
   SubmitApplicationDto,
   ReviewApplicationDto,
@@ -49,7 +49,10 @@ type WebIncident = {
 
 @Injectable()
 export class WebPortalService {
-  constructor(@Inject(FIREBASE_FIRESTORE) private readonly firestore: Firestore) {}
+  constructor(
+    @Inject(FIREBASE_FIRESTORE) private readonly firestore: Firestore,
+    @Inject(FIREBASE_AUTH) private readonly auth: Auth,
+  ) {}
 
   private requireIdentity(user?: DecodedIdToken): DecodedIdToken {
     if (!user?.uid) throw new UnauthorizedException('Sign in required.');
@@ -210,6 +213,91 @@ export class WebPortalService {
       .doc(membership.organizationId)
       .get();
     return snapshot.data();
+  }
+
+  async staff(user?: DecodedIdToken) {
+    const member = await this.membership(user);
+    const snapshot = await this.firestore
+      .collection('web_memberships')
+      .where('organizationId', '==', member.organizationId)
+      .limit(100)
+      .get();
+    return Promise.all(
+      snapshot.docs.map(async (doc) => {
+        const record = doc.data() as WebMembership;
+        const account = await this.auth.getUser(record.uid);
+        return {
+          uid: record.uid,
+          name: account.displayName || account.email || 'Staff member',
+          email: account.email || '',
+          role: record.role,
+          status: record.status,
+        };
+      }),
+    );
+  }
+
+  private async managerAndTarget(user: DecodedIdToken | undefined, targetUid: string) {
+    const actor = this.requireIdentity(user);
+    const member = await this.membership(actor);
+    if (member.role !== 'organization_manager')
+      throw new ForbiddenException('Organization manager access required.');
+    if (actor.uid === targetUid)
+      throw new ForbiddenException('You cannot change your own membership.');
+    const ref = this.firestore.collection('web_memberships').doc(targetUid);
+    const snapshot = await ref.get();
+    const target = snapshot.data() as WebMembership | undefined;
+    if (!snapshot.exists || target?.organizationId !== member.organizationId)
+      throw new NotFoundException('Staff member unavailable.');
+    return { actor, member, target, ref };
+  }
+
+  async changeStaffRole(
+    user: DecodedIdToken | undefined,
+    targetUid: string,
+    role: WebMembership['role'],
+  ) {
+    const { actor, target, ref } = await this.managerAndTarget(user, targetUid);
+    if (target.role === role) return { uid: targetUid, role, status: target.status };
+    const account = await this.auth.getUser(targetUid);
+    const originalClaims = account.customClaims || {};
+    await this.auth.setCustomUserClaims(targetUid, { ...originalClaims, role });
+    try {
+      const batch = this.firestore.batch();
+      batch.update(ref, { role });
+      batch.create(this.firestore.collection('web_audit').doc(randomUUID()), {
+        actorId: actor.uid,
+        action: 'web.staff.role_changed',
+        targetId: targetUid,
+        organizationId: target.organizationId,
+        createdAt: new Date().toISOString(),
+      });
+      await batch.commit();
+    } catch (error) {
+      await this.auth.setCustomUserClaims(targetUid, originalClaims);
+      throw error;
+    }
+    return { uid: targetUid, role, status: target.status, reauthenticationRequired: true };
+  }
+
+  async changeStaffStatus(
+    user: DecodedIdToken | undefined,
+    targetUid: string,
+    status: WebMembership['status'],
+  ) {
+    const { actor, target, ref } = await this.managerAndTarget(user, targetUid);
+    if (target.status === status) return { uid: targetUid, role: target.role, status };
+    const batch = this.firestore.batch();
+    batch.update(ref, { status });
+    batch.create(this.firestore.collection('web_audit').doc(randomUUID()), {
+      actorId: actor.uid,
+      action: `web.staff.${status}`,
+      targetId: targetUid,
+      organizationId: target.organizationId,
+      createdAt: new Date().toISOString(),
+    });
+    await batch.commit();
+    return { uid: targetUid, role: target.role, status };
   }
 
   async incidents(user?: DecodedIdToken) {

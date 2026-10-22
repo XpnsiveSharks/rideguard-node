@@ -6,6 +6,8 @@ import {
   ReviewApplicationDto,
   TransitionIncidentDto,
   IncidentNoteDto,
+  StaffRoleDto,
+  StaffStatusDto,
 } from './web-portal.dto';
 import { WebPortalService } from './web-portal.service';
 
@@ -41,6 +43,21 @@ export class WebPortalController {
   @Get('organization')
   organization(@Req() req: Request) {
     return this.service.organization(req.user);
+  }
+
+  @Get('staff')
+  staff(@Req() req: Request) {
+    return this.service.staff(req.user);
+  }
+
+  @Patch('staff/:uid/role')
+  changeStaffRole(@Req() req: Request, @Param('uid') uid: string, @Body() body: StaffRoleDto) {
+    return this.service.changeStaffRole(req.user, uid, body.role);
+  }
+
+  @Patch('staff/:uid/status')
+  changeStaffStatus(@Req() req: Request, @Param('uid') uid: string, @Body() body: StaffStatusDto) {
+    return this.service.changeStaffStatus(req.user, uid, body.status);
   }
 
   @Get('incidents')
