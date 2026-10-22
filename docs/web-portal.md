@@ -2,27 +2,31 @@
 
 This module shares the existing Firebase Auth and Firestore services. It does not create a second account database. All paths below use the existing `/v1` prefix and success envelope.
 
-| Method  | Path                              | Access                                                              |
-| ------- | --------------------------------- | ------------------------------------------------------------------- |
-| `GET`   | `/v1/web/session`                 | Verified Firebase ID token plus active web role and membership      |
-| `POST`  | `/v1/web/applications`            | Public, validated, rate limited by the existing global throttle     |
-| `GET`   | `/v1/web/applications`            | `admin` or `system_admin` custom claim                              |
-| `PATCH` | `/v1/web/applications/:id/review` | Administrator                                                       |
-| `GET`   | `/v1/web/organization`            | Active organization membership                                      |
-| `GET`   | `/v1/web/staff`                   | Active organization membership                                      |
-| `PATCH` | `/v1/web/staff/:uid/role`         | Organization manager; cannot change own membership                  |
-| `PATCH` | `/v1/web/staff/:uid/status`       | Organization manager; cannot change own membership                  |
-| `GET`   | `/v1/web/incidents`               | Own assigned organization, or administrator oversight               |
-| `GET`   | `/v1/web/incidents/:id`           | Own assigned organization, or administrator oversight               |
-| `PATCH` | `/v1/web/incidents/:id/status`    | Assigned organization or administrator                              |
-| `POST`  | `/v1/web/incidents/:id/notes`     | Assigned organization or administrator                              |
-| `GET`   | `/v1/web/locations`               | Active organization membership; simulation fixtures only at present |
-| `POST`  | `/v1/web/demo/location/:action`   | Isolated development and seeded Barangay 34 membership              |
-| `GET`   | `/v1/web/audit`                   | Administrator                                                       |
+| Method  | Path                               | Access                                                              |
+| ------- | ---------------------------------- | ------------------------------------------------------------------- |
+| `GET`   | `/v1/web/session`                  | Verified Firebase ID token plus active web role and membership      |
+| `POST`  | `/v1/web/applications`             | Public, validated, rate limited by the existing global throttle     |
+| `GET`   | `/v1/web/applications`             | `admin` or `system_admin` custom claim                              |
+| `PATCH` | `/v1/web/applications/:id/review`  | Administrator                                                       |
+| `GET`   | `/v1/web/organization`             | Active organization membership                                      |
+| `GET`   | `/v1/web/organizations`            | Administrator; approved organization records                        |
+| `PATCH` | `/v1/web/organizations/:id/status` | Administrator; suspend or restore access                            |
+| `GET`   | `/v1/web/staff`                    | Active organization membership                                      |
+| `PATCH` | `/v1/web/staff/:uid/role`          | Organization manager; cannot change own membership                  |
+| `PATCH` | `/v1/web/staff/:uid/status`        | Organization manager; cannot change own membership                  |
+| `GET`   | `/v1/web/incidents`                | Own assigned organization, or administrator oversight               |
+| `GET`   | `/v1/web/incidents/:id`            | Own assigned organization, or administrator oversight               |
+| `PATCH` | `/v1/web/incidents/:id/status`     | Assigned organization or administrator                              |
+| `POST`  | `/v1/web/incidents/:id/notes`      | Assigned organization or administrator                              |
+| `GET`   | `/v1/web/locations`                | Active organization membership; simulation fixtures only at present |
+| `POST`  | `/v1/web/demo/location/:action`    | Isolated development and seeded Barangay 34 membership              |
+| `GET`   | `/v1/web/audit`                    | Administrator                                                       |
 
 Application approval records the reviewer and time and creates an active organization record. It sets `activationStatus=awaiting_account_setup`; it **does not** create or email an account. A verified activation and invitation delivery workflow is still required. The existing backend has no organization account email transport or secure document upload service. Do not treat approval as account activation.
 
 Staff listing and role/access changes use server-verified organization membership. A responder cannot change staff permissions, a manager cannot change their own membership, and a manager cannot change a member of another organization. Role changes update the Firebase custom claim and membership record; the affected user must sign in again for a fresh token. Invitation and membership removal flows still require account delivery and lifecycle design.
+
+Administrators can list approved organization records and suspend or restore them. Suspension is checked on every organization membership request, and changes are audited. The administrator audit endpoint lists recent server-side decisions and changes. Driver accounts are not included in these organization management records.
 
 The incident and location collections are new web portal records. Existing mobile alerts are user scoped, and no mobile-to-organization incident pipeline exists yet. The web API does not republish or expose those driver alerts. Production work must link the shared alert/SOS pipeline to assigned incidents and authorize location sessions server side.
 

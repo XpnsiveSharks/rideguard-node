@@ -143,6 +143,20 @@ describe('web portal server authorization', () => {
     await expect(service.applications(admin)).resolves.toEqual([]);
   });
 
+  it('lets an administrator suspend an organization and immediately denies its staff', async () => {
+    const { records, service } = makeStore();
+    await expect(service.organizations(responder)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.changeOrganizationStatus(admin, 'org-a', 'suspended')).resolves.toEqual({
+      id: 'org-a',
+      status: 'suspended',
+    });
+    expect(records.web_organizations['org-a'].status).toBe('suspended');
+    await expect(service.session(responder)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(Object.values(records.web_audit)).toContainEqual(
+      expect.objectContaining({ action: 'web.organization.suspended', actorId: 'admin-a' }),
+    );
+  });
+
   it('rejects unverified administrator tokens from web data', async () => {
     const { service } = makeStore();
     const unverified = { ...admin, email_verified: false } as DecodedIdToken;

@@ -40,3 +40,7 @@ export class StaffRoleDto {
 export class StaffStatusDto {
   @IsIn(['active', 'suspended']) status!: 'active' | 'suspended';
 }
+
+export class OrganizationStatusDto {
+  @IsIn(['active', 'suspended']) status!: 'active' | 'suspended';
+}

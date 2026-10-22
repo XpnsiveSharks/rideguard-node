@@ -215,6 +215,34 @@ export class WebPortalService {
     return snapshot.data();
   }
 
+  async organizations(user?: DecodedIdToken) {
+    this.requireAdmin(user);
+    const snapshot = await this.firestore.collection('web_organizations').limit(100).get();
+    return snapshot.docs.map((doc) => doc.data());
+  }
+
+  async changeOrganizationStatus(
+    user: DecodedIdToken | undefined,
+    id: string,
+    status: 'active' | 'suspended',
+  ) {
+    const actor = this.requireAdmin(user);
+    const ref = this.firestore.collection('web_organizations').doc(id);
+    const snapshot = await ref.get();
+    if (!snapshot.exists) throw new NotFoundException('Organization unavailable.');
+    if (snapshot.data()?.status === status) return { id, status };
+    const batch = this.firestore.batch();
+    batch.update(ref, { status });
+    batch.create(this.firestore.collection('web_audit').doc(randomUUID()), {
+      actorId: actor.uid,
+      action: `web.organization.${status}`,
+      targetId: id,
+      createdAt: new Date().toISOString(),
+    });
+    await batch.commit();
+    return { id, status };
+  }
+
   async staff(user?: DecodedIdToken) {
     const member = await this.membership(user);
     const snapshot = await this.firestore

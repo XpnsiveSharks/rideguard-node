@@ -8,6 +8,7 @@ import {
   IncidentNoteDto,
   StaffRoleDto,
   StaffStatusDto,
+  OrganizationStatusDto,
 } from './web-portal.dto';
 import { WebPortalService } from './web-portal.service';
 
@@ -43,6 +44,20 @@ export class WebPortalController {
   @Get('organization')
   organization(@Req() req: Request) {
     return this.service.organization(req.user);
+  }
+
+  @Get('organizations')
+  organizations(@Req() req: Request) {
+    return this.service.organizations(req.user);
+  }
+
+  @Patch('organizations/:id/status')
+  changeOrganizationStatus(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Body() body: OrganizationStatusDto,
+  ) {
+    return this.service.changeOrganizationStatus(req.user, id, body.status);
   }
 
   @Get('staff')
