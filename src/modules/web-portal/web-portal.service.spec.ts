@@ -245,6 +245,23 @@ describe('web portal server authorization', () => {
     );
   });
 
+  it('restricts organization user management to administrators', async () => {
+    const { records, service } = makeStore();
+    await expect(service.users(responder)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.users(admin)).resolves.toMatchObject([
+      { uid: 'responder-a', organizationId: 'org-a', status: 'active' },
+    ]);
+    await expect(
+      service.changeUserStatus(responder, 'responder-a', 'suspended'),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.changeUserStatus(admin, 'responder-a', 'suspended')).resolves.toEqual({
+      uid: 'responder-a',
+      status: 'suspended',
+    });
+    expect(records.web_memberships['responder-a'].status).toBe('suspended');
+    await expect(service.session(responder)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
   it('rejects unverified administrator tokens from web data', async () => {
     const { service } = makeStore();
     const unverified = { ...admin, email_verified: false } as DecodedIdToken;

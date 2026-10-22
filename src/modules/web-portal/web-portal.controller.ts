@@ -75,6 +75,16 @@ export class WebPortalController {
     return this.service.changeStaffStatus(req.user, uid, body.status);
   }
 
+  @Get('users')
+  users(@Req() req: Request) {
+    return this.service.users(req.user);
+  }
+
+  @Patch('users/:uid/status')
+  changeUserStatus(@Req() req: Request, @Param('uid') uid: string, @Body() body: StaffStatusDto) {
+    return this.service.changeUserStatus(req.user, uid, body.status);
+  }
+
   @Get('incidents')
   incidents(@Req() req: Request) {
     return this.service.incidents(req.user);

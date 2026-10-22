@@ -14,6 +14,8 @@ This module shares the existing Firebase Auth and Firestore services. It does no
 | `GET`   | `/v1/web/staff`                    | Active organization membership                                      |
 | `PATCH` | `/v1/web/staff/:uid/role`          | Organization manager; cannot change own membership                  |
 | `PATCH` | `/v1/web/staff/:uid/status`        | Organization manager; cannot change own membership                  |
+| `GET`   | `/v1/web/users`                    | Administrator; organization web members only                        |
+| `PATCH` | `/v1/web/users/:uid/status`        | Administrator; suspend or restore organization web membership       |
 | `GET`   | `/v1/web/incidents`                | Own assigned organization, or administrator oversight               |
 | `GET`   | `/v1/web/incidents/:id`            | Own assigned organization, or administrator oversight               |
 | `PATCH` | `/v1/web/incidents/:id/status`     | Assigned organization or administrator                              |
@@ -27,6 +29,8 @@ Application approval records the reviewer and time and creates an active organiz
 Staff listing and role/access changes use server-verified organization membership. A responder cannot change staff permissions, a manager cannot change their own membership, and a manager cannot change a member of another organization. Role changes update the Firebase custom claim and membership record; the affected user must sign in again for a fresh token. Invitation and membership removal flows still require account delivery and lifecycle design.
 
 Administrators can list approved organization records and suspend or restore them. Suspension is checked on every organization membership request, and changes are audited. The administrator audit endpoint lists recent server-side decisions and changes. Driver accounts are not included in these organization management records.
+
+The administrator user endpoint lists only organization web memberships and can suspend or restore those memberships. It does not enumerate mobile driver identities or manage Firebase administrator accounts.
 
 The incident and location collections are new web portal records. Existing mobile alerts are user scoped, and no mobile-to-organization incident pipeline exists yet. The web API does not republish or expose those driver alerts. Production work must link the shared alert/SOS pipeline to assigned incidents and authorize location sessions server side.
 

@@ -328,6 +328,49 @@ export class WebPortalService {
     return { uid: targetUid, role: target.role, status };
   }
 
+  async users(user?: DecodedIdToken) {
+    this.requireAdmin(user);
+    const snapshot = await this.firestore.collection('web_memberships').limit(100).get();
+    return Promise.all(
+      snapshot.docs.map(async (doc) => {
+        const record = doc.data() as WebMembership;
+        const account = await this.auth.getUser(record.uid);
+        return {
+          uid: record.uid,
+          name: account.displayName || account.email || 'Organization user',
+          email: account.email || '',
+          role: record.role,
+          status: record.status,
+          organizationId: record.organizationId,
+        };
+      }),
+    );
+  }
+
+  async changeUserStatus(
+    user: DecodedIdToken | undefined,
+    targetUid: string,
+    status: WebMembership['status'],
+  ) {
+    const actor = this.requireAdmin(user);
+    const ref = this.firestore.collection('web_memberships').doc(targetUid);
+    const snapshot = await ref.get();
+    const target = snapshot.data() as WebMembership | undefined;
+    if (!snapshot.exists || !target) throw new NotFoundException('Organization user unavailable.');
+    if (target.status === status) return { uid: targetUid, status };
+    const batch = this.firestore.batch();
+    batch.update(ref, { status });
+    batch.create(this.firestore.collection('web_audit').doc(randomUUID()), {
+      actorId: actor.uid,
+      action: `web.user.${status}`,
+      targetId: targetUid,
+      organizationId: target.organizationId,
+      createdAt: new Date().toISOString(),
+    });
+    await batch.commit();
+    return { uid: targetUid, status };
+  }
+
   async incidents(user?: DecodedIdToken) {
     const actor = this.requireIdentity(user);
     const collection = this.firestore.collection('web_incidents');
