@@ -28,6 +28,9 @@ export class FirebaseAuthGuard implements CanActivate {
 
     try {
       request.user = await this.authService.verifyToken(header.slice(7));
+      if (!request.user.email_verified) {
+        throw new UnauthorizedException('Email verification required');
+      }
       return true;
     } catch {
       throw new UnauthorizedException('Invalid token');

@@ -22,6 +22,19 @@ export class ProfileRepository {
       });
   }
 
+  async updateProfile(profile: Profile): Promise<void> {
+    await this.firestoreClient
+      .collection(PROFILES_COLLECTION)
+      .doc(profile.getUid())
+      .set(
+        {
+          ...ProfileMapper.toPersistence(profile),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+  }
+
   async saveContactInfo(uid: string, emergencyContact: EmergencyContact): Promise<void> {
     await this.firestoreClient
       .collection(PROFILES_COLLECTION)
@@ -38,7 +51,7 @@ export class ProfileRepository {
   async findProfileByUid(uid: string): Promise<boolean> {
     const docRef = this.firestoreClient.collection(PROFILES_COLLECTION).doc(uid);
     const docSnapshot = await docRef.get();
-    return !docSnapshot.exists ? false : true;
+    return docSnapshot.exists && typeof docSnapshot.data()?.personalInfo === 'object';
   }
 
   async getProfile(uid: string): Promise<Record<string, unknown> | null> {

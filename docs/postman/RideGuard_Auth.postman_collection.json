@@ -1,0 +1,175 @@
+{
+  "info": {
+    "_postman_id": "rideguard-auth-v1",
+    "name": "RideGuard Auth and Profile",
+    "description": "Confirmed v1 auth/profile routes. Firebase verification, Google sign-in, OTP, SMS recovery, and password-reset actions require manual Firebase/client steps.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {"key":"baseUrl","value":"http://localhost:5565/v1"},
+    {"key":"username","value":"replace.user"},
+    {"key":"email","value":"replace-with-test-gmail@gmail.com"},
+    {"key":"password","value":"ReplaceMe123"},
+    {"key":"newPassword","value":"ReplaceNew123"},
+    {"key":"firebaseIdToken","value":"PASTE_FIREBASE_ID_TOKEN"},
+    {"key":"verificationToken","value":"PASTE_FRESH_VERIFIED_ID_TOKEN"},
+    {"key":"contactId","value":"PASTE_CONTACT_ID"}
+  ],
+  "item": [
+    {
+      "name": "Registration",
+      "item": [
+        {
+          "name":"Register",
+          "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"username\":\"{{username}}\",\"email\":\"{{email}}\",\"password\":\"{{password}}\"}","options":{"raw":{"language":"json"}}},"url":"{{baseUrl}}/auth/register","description":"202 and data.email. Creates an unverified Firebase user and pending registration; this backend does not send the verification email."},
+          "event":[{"listen":"test","script":{"type":"text","exec":["pm.test('status 202',()=>pm.response.to.have.status(202));","pm.expect(pm.response.json().data.email).to.be.a('string');"]}}]
+        },
+        {
+          "name":"Register invalid",
+          "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"username\":\"bad name\",\"email\":\"not-an-email\",\"password\":\"short\"}","options":{"raw":{"language":"json"}}},"url":"{{baseUrl}}/auth/register","description":"400 with fields."},
+          "event":[{"listen":"test","script":{"type":"text","exec":["pm.test('status 400',()=>pm.response.to.have.status(400));","pm.expect(pm.response.json().fields).to.be.an('object');"]}}]
+        }
+      ]
+    },
+    {
+      "name":"Email Verification",
+      "description":"Manual: send/follow the Firebase verification email in a client or Firebase Console, refresh the user, then set verificationToken to its fresh verified ID token. There is no OTP or resend endpoint.",
+      "item":[
+        {
+          "name":"Finalize registration",
+          "request":{"method":"POST","auth":{"type":"bearer","bearer":[{"key":"token","value":"{{firebaseIdToken}}","type":"string"}]},"body":{"mode":"raw","raw":""},"url":"{{baseUrl}}/auth/register/verify","description":"No body. 200 data.uid and data.email; 400 if email is not verified or pending registration expired."},
+          "event":[{"listen":"test","script":{"type":"text","exec":["pm.test('status 200',()=>pm.response.to.have.status(200));","pm.expect(pm.response.json().data.uid).to.be.a('string');"]}}]
+        },
+        {
+          "name":"Finalize without token",
+          "request":{"method":"POST","url":"{{baseUrl}}/auth/register/verify","description":"401 Missing bearer token."},
+          "event":[{"listen":"test","script":{"type":"text","exec":["pm.test('status 401',()=>pm.response.to.have.status(401));"]}}]
+        }
+      ]
+    },
+    {
+      "name":"Login",
+      "item":[
+        {
+          "name":"Login with email",
+          "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"identifier\":\"{{email}}\",\"password\":\"{{password}}\"}","options":{"raw":{"language":"json"}}},"url":"{{baseUrl}}/auth/login","description":"200 data.uid and data.email. This endpoint does not return a token."},
+          "event":[{"listen":"test","script":{"type":"text","exec":["pm.test('status 200',()=>pm.response.to.have.status(200));","pm.expect(pm.response.json().data.uid).to.be.a('string');"]}}]
+        },
+        {
+          "name":"Login with username",
+          "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"identifier\":\"{{username}}\",\"password\":\"{{password}}\"}","options":{"raw":{"language":"json"}}},"url":"{{baseUrl}}/auth/login"}
+        },
+        {
+          "name":"Login invalid credentials",
+          "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"identifier\":\"{{email}}\",\"password\":\"wrong-password\"}","options":{"raw":{"language":"json"}}},"url":"{{baseUrl}}/auth/login","description":"401 with generic Invalid username/email or password. Unverified accounts use the same response."},
+          "event":[{"listen":"test","script":{"type":"text","exec":["pm.test('status 401',()=>pm.response.to.have.status(401));","pm.expect(pm.response.json().message).to.eql('Invalid username/email or password.');"]}}]
+        }
+      ]
+    },
+    {
+      "name":"Google Authentication",
+      "description":"No Google backend endpoint. Use Firebase browser/client Google popup or redirect, then paste the resulting ID token into firebaseIdToken.",
+      "item":[
+        {
+          "name":"Google token protected check",
+          "request":{"method":"GET","auth":{"type":"bearer","bearer":[{"key":"token","value":"{{firebaseIdToken}}","type":"string"}]},"url":"{{baseUrl}}/auth/me","description":"200 token claims when the manually obtained Google Firebase token is valid and verified."},
+          "event":[{"listen":"test","script":{"type":"text","exec":["pm.test('status 200',()=>pm.response.to.have.status(200));","pm.expect(pm.response.json().data.uid).to.be.a('string');"]}}]
+        }
+      ]
+    },
+    {
+      "name":"Forgot Password",
+      "item":[
+        {
+          "name":"Request reset email",
+          "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"email\":\"{{email}}\"}","options":{"raw":{"language":"json"}}},"url":"{{baseUrl}}/auth/forgot-password","description":"200 generic message. Retrieve and complete the Firebase reset link manually; there is no email OTP endpoint."},
+          "event":[{"listen":"test","script":{"type":"text","exec":["pm.test('status 200',()=>pm.response.to.have.status(200));","pm.expect(pm.response.json().data.message).to.eql('If an account exists, a password reset email has been sent.');"]}}]
+        },
+        {
+          "name":"Forgot password invalid email",
+          "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"email\":\"not-an-email\"}","options":{"raw":{"language":"json"}}},"url":"{{baseUrl}}/auth/forgot-password"},
+          "event":[{"listen":"test","script":{"type":"text","exec":["pm.test('status 400',()=>pm.response.to.have.status(400));"]}}]
+        }
+      ]
+    },
+    {
+      "name":"Password Reset",
+      "description":"Manual: follow Firebase's reset action and set newPassword, then run this request. No reset-action endpoint is implemented.",
+      "item":[
+        {
+          "name":"Login after Firebase reset",
+          "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"identifier\":\"{{email}}\",\"password\":\"{{newPassword}}\"}","options":{"raw":{"language":"json"}}},"url":"{{baseUrl}}/auth/login"},
+          "event":[{"listen":"test","script":{"type":"text","exec":["pm.test('status 200',()=>pm.response.to.have.status(200));"]}}]
+        }
+      ]
+    },
+    {
+      "name":"Profile",
+      "item":[
+        {
+          "name":"Get identity",
+          "request":{"method":"GET","auth":{"type":"bearer","bearer":[{"key":"token","value":"{{firebaseIdToken}}","type":"string"}]},"url":"{{baseUrl}}/auth/me"}
+        },
+        {
+          "name":"Check profile status",
+          "request":{"method":"GET","auth":{"type":"bearer","bearer":[{"key":"token","value":"{{firebaseIdToken}}","type":"string"}]},"url":"{{baseUrl}}/auth/is-old-user"}
+        },
+        {
+          "name":"Create personal profile",
+          "request":{"method":"POST","auth":{"type":"bearer","bearer":[{"key":"token","value":"{{firebaseIdToken}}","type":"string"}]},"header":[{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"first_name\":\"Jane\",\"last_name\":\"Driver\",\"phone_number\":\"+639171234567\",\"brand\":\"Honda\",\"model\":\"Click 125\",\"plate_number\":\"ABC1234\",\"color\":\"Red\",\"contact_name\":\"Alex Driver\",\"emergency_phone_number\":\"+639171234568\",\"relationship\":\"Sibling\"}","options":{"raw":{"language":"json"}}},"url":"{{baseUrl}}/profile/personal-info","description":"200 data {}. Duplicate completed profile is 422. Ten relationship values are accepted here: Parent, Child, Sibling, Spouse, Partner, Friend, Colleague, Mentor, Student, Other."}
+        },
+        {
+          "name":"Get profile",
+          "request":{"method":"GET","auth":{"type":"bearer","bearer":[{"key":"token","value":"{{firebaseIdToken}}","type":"string"}]},"url":"{{baseUrl}}/profile/me"}
+        },
+        {
+          "name":"Create legacy emergency contact",
+          "request":{"method":"POST","auth":{"type":"bearer","bearer":[{"key":"token","value":"{{firebaseIdToken}}","type":"string"}]},"header":[{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"contact_name\":\"Alex Driver\",\"emergency_phone_number\":\"+639171234568\",\"relationship\":\"Sibling\"}","options":{"raw":{"language":"json"}}},"url":"{{baseUrl}}/profile/emergency-contact"}
+        },
+        {
+          "name":"Upload profile photo",
+          "request":{"method":"POST","auth":{"type":"bearer","bearer":[{"key":"token","value":"{{firebaseIdToken}}","type":"string"}]},"body":{"mode":"formdata","formdata":[{"key":"photo","type":"file","src":""}]},"url":"{{baseUrl}}/profile/photo","description":"Choose JPEG, PNG, or WebP no larger than 5 MB. 200 data has photo_url and public_id."}
+        },
+        {
+          "name":"List contacts",
+          "request":{"method":"GET","auth":{"type":"bearer","bearer":[{"key":"token","value":"{{firebaseIdToken}}","type":"string"}]},"url":"{{baseUrl}}/profile/emergency-contacts"}
+        },
+        {
+          "name":"Create contact",
+          "request":{"method":"POST","auth":{"type":"bearer","bearer":[{"key":"token","value":"{{firebaseIdToken}}","type":"string"}]},"body":{"mode":"formdata","formdata":[{"key":"name","value":"Alex Driver","type":"text"},{"key":"phone","value":"+639171234568","type":"text"},{"key":"relationship","value":"Sibling","type":"text"}]},"url":"{{baseUrl}}/profile/emergency-contacts","description":"Phone must match +639 followed by 9 digits; relationship is Parent, Sibling, Spouse, Child, Friend, or Other."}
+        },
+        {
+          "name":"Get contact",
+          "request":{"method":"GET","auth":{"type":"bearer","bearer":[{"key":"token","value":"{{firebaseIdToken}}","type":"string"}]},"url":"{{baseUrl}}/profile/emergency-contacts/{{contactId}}"}
+        },
+        {
+          "name":"Update contact",
+          "request":{"method":"PATCH","auth":{"type":"bearer","bearer":[{"key":"token","value":"{{firebaseIdToken}}","type":"string"}]},"body":{"mode":"formdata","formdata":[{"key":"name","value":"Alex D.","type":"text"},{"key":"phone","value":"+639171234568","type":"text"},{"key":"relationship","value":"Friend","type":"text"}]},"url":"{{baseUrl}}/profile/emergency-contacts/{{contactId}}"}
+        },
+        {
+          "name":"Delete contact",
+          "request":{"method":"DELETE","auth":{"type":"bearer","bearer":[{"key":"token","value":"{{firebaseIdToken}}","type":"string"}]},"url":"{{baseUrl}}/profile/emergency-contacts/{{contactId}}"}
+        }
+      ]
+    },
+    {
+      "name":"Error Cases",
+      "item":[
+        {
+          "name":"Missing bearer",
+          "request":{"method":"GET","url":"{{baseUrl}}/auth/me","description":"401 Missing bearer token."},
+          "event":[{"listen":"test","script":{"type":"text","exec":["pm.test('status 401',()=>pm.response.to.have.status(401));"]}}]
+        },
+        {
+          "name":"Invalid bearer",
+          "request":{"method":"GET","auth":{"type":"bearer","bearer":[{"key":"token","value":"{{firebaseIdToken}}","type":"string"}]},"url":"{{baseUrl}}/auth/me","description":"401 Invalid token."},
+          "event":[{"listen":"test","script":{"type":"text","exec":["pm.test('status 401',()=>pm.response.to.have.status(401));"]}}]
+        },
+        {
+          "name":"Invalid contact phone",
+          "request":{"method":"POST","auth":{"type":"bearer","bearer":[{"key":"token","value":"{{firebaseIdToken}}","type":"string"}]},"body":{"mode":"formdata","formdata":[{"key":"name","value":"Alex","type":"text"},{"key":"phone","value":"555-0100","type":"text"},{"key":"relationship","value":"Sibling","type":"text"}]},"url":"{{baseUrl}}/profile/emergency-contacts","description":"400 because phone must match +639 followed by 9 digits."}
+        }
+      ]
+    }
+  ]
+}

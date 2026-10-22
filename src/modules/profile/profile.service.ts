@@ -32,9 +32,9 @@ export class ProfileService {
 
     const emergencyContact = EmergencyContact.create(input.emergencyContactFields);
 
-    const alreadyExists = await this.profileRepository.findProfileByUid(input.uid as string);
+    const existing = await this.profileRepository.getProfile(input.uid as string);
 
-    if (alreadyExists) {
+    if (existing?.personalInfo) {
       throw new UnprocessableEntityException('User already exists');
     }
 
@@ -45,7 +45,11 @@ export class ProfileService {
       emergencyContact: emergencyContact,
     });
 
-    await this.profileRepository.saveProfile(profile);
+    if (existing) {
+      await this.profileRepository.updateProfile(profile);
+    } else {
+      await this.profileRepository.saveProfile(profile);
+    }
   }
 
   // *** CREATES A NEW EMERGENCY CONTACT ***
