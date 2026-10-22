@@ -13,6 +13,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ProfileService } from './profile.service';
 import { CreateEmergencyContactDto, CreateProfileDto } from './profile.dto';
+import { UpdateProfileDto } from './profile-update.dto';
 import type { Request } from 'express';
 import { EmergencyContactDto, UpdateEmergencyContactDto } from './contacts.dto';
 import { profilePhotoUploadOptions } from './profile.upload';
@@ -64,6 +65,12 @@ export class ProfileController {
   @Get('me')
   getProfile(@Req() req: Request) {
     return this.profileService.getProfile(req.user?.uid as string);
+  }
+
+  // PATCH /profile/me; identity is always taken from the verified Firebase token.
+  @Patch('me')
+  updateProfile(@Req() req: Request, @Body() body: UpdateProfileDto) {
+    return this.profileService.updateProfile(req.user?.uid as string, body);
   }
 
   // POST /profile/photo; multipart/form-data photo=<jpeg|png|webp>, max 5 MB.

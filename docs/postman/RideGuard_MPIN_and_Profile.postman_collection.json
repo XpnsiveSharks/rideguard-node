@@ -1,0 +1,417 @@
+{
+  "info": {
+    "_postman_id": "rideguard-mpin-profile-v1",
+    "name": "RideGuard MPIN and Profile Updates",
+    "description": "Verified v1 Profile update and MPIN routes for RideGuard backend.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5565/v1" },
+    { "key": "firebaseIdToken", "value": "PASTE_FIREBASE_ID_TOKEN_HERE" },
+    { "key": "changeProofToken", "value": "" },
+    { "key": "changeChallengeId", "value": "" },
+    { "key": "changeGrantToken", "value": "" },
+    { "key": "recoveryChallengeId", "value": "" },
+    { "key": "resetGrantToken", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Profile Updates",
+      "item": [
+        {
+          "name": "Update Profile Details (Success)",
+          "request": {
+            "method": "PATCH",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_name\": \"Jane\",\n  \"last_name\": \"Rider\",\n  \"phone_number\": \"+639171234567\",\n  \"brand\": \"Yamaha\",\n  \"model\": \"NMAX\",\n  \"plate_number\": \"ND1234\",\n  \"color\": \"Matte Black\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/profile/me",
+            "description": "Updates non-email profile fields. Phone updates succeed without confirmation codes."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().data.personalInfo.firstName).to.eql('Jane');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Profile (Reject Email Change)",
+          "request": {
+            "method": "PATCH",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newemail@gmail.com\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/profile/me",
+            "description": "Rejects email changes (email remains read-only)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "pm.expect(pm.response.json().fields.email).to.exist;"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Profile (Reject Empty Body)",
+          "request": {
+            "method": "PATCH",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/profile/me",
+            "description": "Rejects empty body when no editable field is provided."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "MPIN Core",
+      "item": [
+        {
+          "name": "1. MPIN Status",
+          "request": {
+            "method": "GET",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "url": "{{baseUrl}}/mpin/status",
+            "description": "Returns configured state, requiresUnlock flag, remaining attempts, and server timestamp."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const json = pm.response.json().data;",
+                  "pm.expect(json).to.have.property('configured');",
+                  "pm.expect(json).to.have.property('remainingAttempts');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. MPIN Setup (Success)",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pin\": \"1234\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/mpin/setup",
+            "description": "Configures 4-digit MPIN securely."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200 or 201', () => pm.expect([200, 201]).to.include(pm.response.code));",
+                  "pm.expect(pm.response.json().data.success).to.be.true;"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. MPIN Unlock (Success)",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pin\": \"1234\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/mpin/unlock",
+            "description": "Establishes a 15-minute unlock window."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.expect(pm.response.json().data.success).to.be.true;"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. MPIN Unlock (Wrong PIN - 401)",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pin\": \"0000\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/mpin/unlock",
+            "description": "Increments failed attempts; 5 failures trigger lockout."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "MPIN Change Flow",
+      "item": [
+        {
+          "name": "1. Authorize Change (Current PIN)",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pin\": \"1234\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/mpin/change/authorize",
+            "description": "Issues change-proof grant valid for 10 minutes."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "const token = pm.response.json().data.token;",
+                  "pm.collectionVariables.set('changeProofToken', token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Request Change Email Code",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"authorization\": \"{{changeProofToken}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/mpin/change/code",
+            "description": "Consumes change-proof grant and sends 6-digit code. Returns 503 if email delivery not configured."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const cid = pm.response.json().data.challengeId;",
+                  "  pm.collectionVariables.set('changeChallengeId', cid);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Resend Change Code (Cooldown Test)",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeId\": \"{{changeChallengeId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/mpin/change/code/resend",
+            "description": "Enforces 60-second cooldown. Returns 429 if called within 60s."
+          }
+        },
+        {
+          "name": "4. Verify Change Code",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeId\": \"{{changeChallengeId}}\",\n  \"code\": \"123456\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/mpin/change/code/verify",
+            "description": "Verifies 6-digit code and issues single-use change grant."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const token = pm.response.json().data.token;",
+                  "  pm.collectionVariables.set('changeGrantToken', token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "5. Save Changed MPIN",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"authorization\": \"{{changeGrantToken}}\",\n  \"pin\": \"5678\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/mpin/change",
+            "description": "Consumes change grant and replaces PIN."
+          }
+        }
+      ]
+    },
+    {
+      "name": "MPIN Recovery Flow",
+      "item": [
+        {
+          "name": "1. Request Recovery Code",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "url": "{{baseUrl}}/mpin/recovery/code",
+            "description": "Dispatches recovery code to account's registered email."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const cid = pm.response.json().data.challengeId;",
+                  "  pm.collectionVariables.set('recoveryChallengeId', cid);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Resend Recovery Code",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeId\": \"{{recoveryChallengeId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/mpin/recovery/code/resend"
+          }
+        },
+        {
+          "name": "3. Verify Recovery Code",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"challengeId\": \"{{recoveryChallengeId}}\",\n  \"code\": \"123456\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/mpin/recovery/code/verify"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const token = pm.response.json().data.token;",
+                  "  pm.collectionVariables.set('resetGrantToken', token);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Reset MPIN",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"authorization\": \"{{resetGrantToken}}\",\n  \"pin\": \"9999\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/mpin/recovery/reset"
+          }
+        }
+      ]
+    }
+  ]
+}
