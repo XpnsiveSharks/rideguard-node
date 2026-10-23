@@ -1,10 +1,14 @@
 import { Type } from 'class-transformer';
 import {
   IsISO8601,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
+  IsString,
   IsUUID,
   Max,
+  Matches,
+  MaxLength,
   Min,
   ValidateIf,
   ValidateNested,
@@ -33,6 +37,13 @@ export class SosLocationDto {
 export class StartSosDto {
   @IsUUID()
   requestId!: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @Matches(/^[^/]+$/)
+  @MaxLength(1500)
+  alertId?: string | null;
 
   @IsOptional()
   @ValidateNested()

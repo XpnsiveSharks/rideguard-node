@@ -5,11 +5,26 @@ import type { EnvironmentVariables } from '@/config/env.validation';
 import type { SmsDeliveryTracker } from '@/infra/sms/sms-delivery-tracker';
 import type { SmsDeliveryStatus, SmsSendInput, SmsSendResult } from '@/infra/sms/sms.types';
 import type { ProfileService } from '../profile/profile.service';
+import type { AlertsService } from '../alerts/alerts.service';
 import type { EmergencyContactRecord } from '../profile/infrastructure/contact.repository';
 import type { SosRepository, StartOutcome } from './infrastructure/sos.repository';
 import { SosService } from './sos.service';
 import type { StartSosDto } from './sos.dto';
-import type { SosRecord } from './sos.types';
+import type { PublicSos, SosRecord } from './sos.types';
+import { Test } from '@nestjs/testing';
+import { INestApplication, VersioningType } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import request from 'supertest';
+import type { App } from 'supertest/types';
+import { AppValidationPipe } from '@/common/pipes/app-validation.pipe';
+import { ResponseInterceptor } from '@/common/interceptors/response.interceptor';
+import { HttpExceptionFilter } from '@/common/filters/http-exception.filter';
+import { FirebaseAuthGuard } from '../auth/guards/firebase-auth.guard';
+import type { AuthService } from '../auth/auth.service';
+import { AlertSosController, SosController } from './sos.controller';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { join } from 'node:path';
 
 const UID = 'user-1';
 const REQUEST_ID = '3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b';
@@ -40,6 +55,13 @@ class FakeSosRepository {
     const id = this.active.get(uid);
     const record = id ? this.records.get(id) : undefined;
     return Promise.resolve(record?.status === 'active' ? record : null);
+  }
+
+  findLatestByAlert(uid: string, alertId: string) {
+    const records = [...this.records.values()]
+      .filter((r) => r.uid === uid && r.alertId === alertId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.sosId.localeCompare(a.sosId));
+    return Promise.resolve(records[0] ?? null);
   }
 
   startOrGet(
@@ -99,6 +121,7 @@ type Harness = {
   sent: SmsSendInput[];
   send: jest.Mock<Promise<SmsSendResult>, [SmsSendInput]>;
   track: jest.Mock<Promise<SmsDeliveryStatus>, [string]>;
+  getAlert: jest.Mock;
 };
 
 function build(
@@ -121,9 +144,11 @@ function build(
     Promise.resolve<SmsDeliveryStatus>(options.track ?? { state: 'sent' }),
   );
   const profileService = {
-    listContacts: jest.fn(() =>
+    listContacts: jest.fn((uid: string) =>
       Promise.resolve(
-        options.contacts ?? [contact('a', '+639111111111'), contact('b', '+639222222222')],
+        uid === 'no-contacts'
+          ? []
+          : (options.contacts ?? [contact('a', '+639111111111'), contact('b', '+639222222222')]),
       ),
     ),
     getProfile: jest.fn(() =>
@@ -134,14 +159,21 @@ function build(
     get: jest.fn(() => options.enabled ?? true),
   } as unknown as ConfigService<EnvironmentVariables, true>;
 
+  const getAlert = jest.fn((alertId: string, uid: string) => {
+    if (uid !== UID || !['alert-1', 'alert-2'].includes(alertId))
+      throw new NotFoundException('Alert not found.');
+    return Promise.resolve({});
+  });
+
   const service = new SosService(
     repo as unknown as SosRepository,
     profileService,
     { send },
     { track } as unknown as SmsDeliveryTracker,
     config,
+    { getOwned: getAlert } as unknown as AlertsService,
   );
-  return { service, repo, sent, send, track };
+  return { service, repo, sent, send, track, getAlert };
 }
 
 const flush = async (): Promise<void> => {
@@ -160,6 +192,274 @@ describe('SosService', () => {
     }
   });
   afterEach(() => jest.restoreAllMocks());
+
+  describe('request lookup and alert linking', () => {
+    it('looks up a request after stop, masks recipients, and never sends again', async () => {
+      const { service, send } = build();
+      const { sos } = await service.start(UID, dto());
+      await flush();
+      await service.stop(UID, sos.sosId);
+      await flush();
+      const calls = send.mock.calls.length;
+      const result = await service.getByRequest(UID, REQUEST_ID);
+      expect(result.status).toBe('ended');
+      expect(result.sosId).toBe(sos.sosId);
+      expect(result.alertId).toBeNull();
+      expect(result.recipients.every((r) => r.phone.includes('*'))).toBe(true);
+      expect(result).not.toHaveProperty('uid');
+      expect(send).toHaveBeenCalledTimes(calls);
+      await expect(service.getByRequest('other-user', REQUEST_ID)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      await expect(service.getByRequest(UID, 'missing')).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('resolves a second request mapping to the original active SOS', async () => {
+      const { service } = build();
+      const first = await service.start(UID, dto());
+      const secondRequest = '9b1d4c2a-1111-4222-8333-444455556666';
+      await service.start(UID, dto({ requestId: secondRequest }));
+      const result = await service.getByRequest(UID, secondRequest);
+      expect(result.sosId).toBe(first.sos.sosId);
+      expect(result.requestId).toBe(REQUEST_ID);
+      await flush();
+    });
+
+    it('validates and persists an owned alert and includes it in request replay', async () => {
+      const { service, getAlert, send } = build();
+      const first = await service.start(UID, dto({ alertId: 'alert-1' }));
+      await flush();
+      const calls = send.mock.calls.length;
+      const replay = await service.start(UID, dto({ alertId: 'alert-1' }));
+      expect(getAlert).toHaveBeenCalledWith('alert-1', UID);
+      expect(getAlert).toHaveBeenCalledTimes(1);
+      expect(first.sos.alertId).toBe('alert-1');
+      expect(replay.created).toBe(false);
+      expect((await service.getByRequest(UID, REQUEST_ID)).alertId).toBe('alert-1');
+      expect(send).toHaveBeenCalledTimes(calls);
+    });
+
+    it('rejects a missing or foreign alert before durable activation or sending', async () => {
+      const { service, repo, send } = build();
+      for (const alertId of ['missing', 'foreign-alert']) {
+        await expect(service.start(UID, dto({ alertId }))).rejects.toBeInstanceOf(
+          NotFoundException,
+        );
+      }
+      expect(repo.records.size).toBe(0);
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('treats changed alert associations as conflicting request reuse', async () => {
+      const { service } = build();
+      await service.start(UID, dto({ alertId: 'alert-1' }));
+      await expect(service.start(UID, dto({ alertId: 'alert-2' }))).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      await expect(service.start(UID, dto())).rejects.toBeInstanceOf(ConflictException);
+      await flush();
+    });
+
+    it('preserves the original alert association when another SOS is already active', async () => {
+      const { service } = build();
+      const first = await service.start(UID, dto({ alertId: 'alert-1' }));
+      const result = await service.start(
+        UID,
+        dto({ alertId: 'alert-2', requestId: '9b1d4c2a-1111-4222-8333-444455556666' }),
+      );
+      expect(result.sos.sosId).toBe(first.sos.sosId);
+      expect(result.sos.alertId).toBe('alert-1');
+      expect(await service.getByAlert(UID, 'alert-2')).toBeNull();
+      await flush();
+    });
+
+    it('returns null for an owned alert with no SOS and validates alert ownership first', async () => {
+      const { service, repo } = build();
+      const query = jest.spyOn(repo, 'findLatestByAlert');
+      expect(await service.getByAlert(UID, 'alert-1')).toBeNull();
+      query.mockClear();
+      await expect(service.getByAlert(UID, 'foreign-alert')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      expect(query).not.toHaveBeenCalled();
+    });
+
+    it('normalizes legacy records and preserves their pre-alert fingerprints', async () => {
+      const { service, repo } = build();
+      const { sos } = await service.start(UID, dto());
+      delete repo.records.get(sos.sosId)!.alertId;
+      repo.requests.set(`${UID}_${REQUEST_ID}`, {
+        sosId: sos.sosId,
+        fingerprint: JSON.stringify([REQUEST_ID, null]),
+      });
+      const replay = await service.start(UID, dto({ alertId: null }));
+      expect(replay.created).toBe(false);
+      expect(replay.sos.alertId).toBeNull();
+      await flush();
+    });
+  });
+
+  describe('HTTP contract', () => {
+    let app: INestApplication<App>;
+    let harness: Harness;
+
+    beforeEach(async () => {
+      harness = build();
+      const module = await Test.createTestingModule({
+        controllers: [SosController, AlertSosController],
+        providers: [{ provide: SosService, useValue: harness.service }],
+      }).compile();
+      app = module.createNestApplication();
+      app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
+      const reflector = new Reflector();
+      const auth = {
+        verifyToken: (token: string) => {
+          const uid = (
+            {
+              'local-user': UID,
+              'local-foreign': 'other-user',
+              'local-no-contacts': 'no-contacts',
+            } as Record<string, string>
+          )[token];
+          if (!uid) throw new Error('Invalid local test token');
+          return Promise.resolve({ uid, email_verified: true });
+        },
+      } as unknown as AuthService;
+      app.useGlobalGuards(new FirebaseAuthGuard(auth, reflector));
+      app.useGlobalPipes(new AppValidationPipe());
+      app.useGlobalInterceptors(new ResponseInterceptor(reflector));
+      app.useGlobalFilters(new HttpExceptionFilter());
+      await app.init();
+    });
+
+    afterEach(async () => {
+      await app.close();
+    });
+
+    it('routes authenticated request and alert lookups, including ended SOS records', async () => {
+      const server = app.getHttpServer();
+      await request(server)
+        .get('/v1/alerts/alert-1/sos')
+        .auth('local-user', { type: 'bearer' })
+        .expect(200)
+        .expect(({ body }) => {
+          expect((body as { data: unknown }).data).toBeNull();
+        });
+      const created = await request(server)
+        .post('/v1/sos')
+        .auth('local-user', { type: 'bearer' })
+        .send(dto({ alertId: 'alert-1' }))
+        .expect(201);
+      const sosId = (created.body as { data: PublicSos }).data.sosId;
+      await flush();
+      for (const path of [`/v1/sos/by-request/${REQUEST_ID}`, '/v1/alerts/alert-1/sos']) {
+        await request(server)
+          .get(path)
+          .auth('local-user', { type: 'bearer' })
+          .expect(200)
+          .expect(({ body }) => {
+            expect(body).toMatchObject({ success: true, data: { sosId, alertId: 'alert-1' } });
+          });
+      }
+      await request(server)
+        .post(`/v1/sos/${sosId}/stop`)
+        .auth('local-user', { type: 'bearer' })
+        .send({})
+        .expect(200);
+      await flush();
+      await request(server)
+        .get(`/v1/sos/by-request/${REQUEST_ID}`)
+        .auth('local-user', { type: 'bearer' })
+        .expect(200)
+        .expect(({ body }) => {
+          expect((body as { data: PublicSos }).data.status).toBe('ended');
+        });
+    });
+
+    it('enforces authentication, scoped request IDs, alert ownership, and input validation', async () => {
+      const server = app.getHttpServer();
+      await request(server).get(`/v1/sos/by-request/${REQUEST_ID}`).expect(401);
+      await request(server).get('/v1/alerts/alert-1/sos').expect(401);
+      await request(server)
+        .get('/v1/sos/by-request/not-a-uuid')
+        .auth('local-user', { type: 'bearer' })
+        .expect(400);
+      await request(server)
+        .get(`/v1/sos/by-request/${REQUEST_ID}`)
+        .auth('local-foreign', { type: 'bearer' })
+        .expect(404);
+      await request(server)
+        .get('/v1/alerts/foreign-alert/sos')
+        .auth('local-user', { type: 'bearer' })
+        .expect(404);
+      await request(server)
+        .post('/v1/sos')
+        .auth('local-user', { type: 'bearer' })
+        .send(dto({ alertId: 'foreign-alert' }))
+        .expect(404);
+      for (const alertId of ['', 'bad/id']) {
+        await request(server)
+          .post('/v1/sos')
+          .auth('local-user', { type: 'bearer' })
+          .send(dto({ alertId }))
+          .expect(400);
+      }
+      expect(harness.send).not.toHaveBeenCalled();
+    });
+
+    if (process.env.RUN_SOS_POSTMAN === 'true')
+      it('runs the saved local Postman collection against the real controllers with fake dependencies', async () => {
+        await app.listen(0, '127.0.0.1');
+        const baseUrl = `${await app.getUrl()}/v1`;
+        const run = promisify(execFile);
+        try {
+          const args = [
+            'collection',
+            'run',
+            join(process.cwd(), 'docs/postman/RideGuard_SOS.postman_collection.json'),
+            '--no-report-events',
+            '--timeout',
+            '60000',
+            '--timeout-request',
+            '5000',
+            '--env-var',
+            `baseUrl=${baseUrl}`,
+            '--env-var',
+            'sosTestMode=stubbed',
+            '--env-var',
+            'firebaseIdToken=local-user',
+            '--env-var',
+            'foreignToken=local-foreign',
+            '--env-var',
+            'noContactsToken=local-no-contacts',
+            '--env-var',
+            'alertId=alert-1',
+            '--env-var',
+            'unlinkedAlertId=alert-2',
+            '--env-var',
+            'foreignAlertId=foreign-alert',
+          ];
+          const options = { timeout: 90000, maxBuffer: 1024 * 1024 };
+          await run(
+            'postman',
+            [
+              ...args.map((arg) => (arg === 'sosTestMode=stubbed' ? 'sosTestMode=disabled' : arg)),
+              '-i',
+              'Activate linked SOS',
+            ],
+            options,
+          ).catch(() => undefined);
+          expect(harness.send).not.toHaveBeenCalled();
+          expect(harness.repo.records.size).toBe(0);
+          const { stdout } = await run('postman', args, options);
+          // Only this isolated fake backend is allowed to reach this output.
+          console.log(stdout);
+        } catch {
+          throw new Error('Local SOS Postman collection failed; no live services were used.');
+        }
+        expect(harness.send).toHaveBeenCalledTimes(4);
+      }, 100000);
+  });
 
   describe('start', () => {
     it('creates an SOS, sends one SMS per recipient and reports accepted', async () => {

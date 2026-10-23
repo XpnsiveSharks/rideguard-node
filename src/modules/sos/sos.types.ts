@@ -32,6 +32,8 @@ export type SosRecord = {
   sosId: string;
   uid: string;
   requestId: string;
+  // Absent on records created before alert linking was added.
+  alertId?: string | null;
   status: SosStatus;
   // Display name used in messages, captured at activation.
   requesterName: string;
@@ -44,6 +46,7 @@ export type SosRecord = {
 export type PublicSosRecipient = Omit<SosRecipient, 'phone' | 'providerMessageId'> & {
   phone: string;
 };
-export type PublicSos = Omit<SosRecord, 'uid' | 'recipients' | 'requesterName'> & {
+export type PublicSos = Omit<SosRecord, 'uid' | 'recipients' | 'requesterName' | 'alertId'> & {
+  alertId: string | null;
   recipients: PublicSosRecipient[];
 };
