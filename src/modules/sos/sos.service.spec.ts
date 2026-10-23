@@ -36,6 +36,15 @@ class FakeSosRepository {
     return Promise.resolve(this.records.get(sosId) ?? null);
   }
 
+  listPage(afterId?: string) {
+    return Promise.resolve(
+      [...this.records.values()]
+        .sort((a, b) => a.sosId.localeCompare(b.sosId))
+        .filter((record) => !afterId || record.sosId > afterId)
+        .slice(0, 100),
+    );
+  }
+
   getActive(uid: string) {
     const id = this.active.get(uid);
     const record = id ? this.records.get(id) : undefined;
@@ -104,6 +113,7 @@ type Harness = {
 function build(
   options: {
     enabled?: boolean;
+    timeoutMs?: number;
     contacts?: EmergencyContactRecord[];
     send?: (input: SmsSendInput) => Promise<SmsSendResult>;
     track?: SmsDeliveryStatus;
@@ -131,7 +141,9 @@ function build(
     ),
   } as unknown as ProfileService;
   const config = {
-    get: jest.fn(() => options.enabled ?? true),
+    get: jest.fn((key: string) =>
+      key === 'SOS_ENABLED' ? (options.enabled ?? true) : (options.timeoutMs ?? 10000),
+    ),
   } as unknown as ConfigService<EnvironmentVariables, true>;
 
   const service = new SosService(
@@ -160,6 +172,228 @@ describe('SosService', () => {
     }
   });
   afterEach(() => jest.restoreAllMocks());
+
+  describe('crash recovery', () => {
+    function seed(
+      repo: FakeSosRepository,
+      options: {
+        initial?: SosRecord['recipients'][number]['initial']['status'];
+        ended?: SosRecord['recipients'][number]['initial']['status'];
+        age?: number;
+        endedAge?: number;
+        stopped?: boolean;
+        id?: string;
+      } = {},
+    ): SosRecord {
+      const createdAt = new Date(Date.now() - (options.age ?? 121000)).toISOString();
+      const record: SosRecord = {
+        sosId: options.id ?? 'recovery-1',
+        uid: UID,
+        requestId: REQUEST_ID,
+        status: options.stopped ? 'ended' : 'active',
+        requesterName: 'Test user',
+        createdAt,
+        endedAt: options.stopped ? createdAt : null,
+        location: null,
+        recipients: [
+          {
+            contactId: 'a',
+            name: 'Contact',
+            phone: contact('a', '+639111111111').phone,
+            initial: { status: options.initial ?? 'queued', updatedAt: createdAt },
+            ended: options.ended
+              ? {
+                  status: options.ended,
+                  updatedAt: new Date(
+                    Date.now() - (options.endedAge ?? options.age ?? 121000),
+                  ).toISOString(),
+                }
+              : null,
+          },
+        ],
+      };
+      repo.records.set(record.sosId, record);
+      return record;
+    }
+
+    it('expires stale queued initial jobs without sending', async () => {
+      const { service, repo, send } = build();
+      const record = seed(repo);
+      await service.recover();
+      expect(record.recipients[0].initial).toMatchObject({
+        status: 'failed',
+        errorCode: 'expired',
+      });
+      expect(send).not.toHaveBeenCalled();
+      expect(record.status).toBe('active');
+    });
+
+    it('marks interrupted initial and end sends unknown and never resends them', async () => {
+      const { service, repo, send } = build();
+      const record = seed(repo, { initial: 'sending', ended: 'sending', stopped: true });
+      await service.recover();
+      await service.recover();
+      for (const summary of [record.recipients[0].initial, record.recipients[0].ended]) {
+        expect(summary).toMatchObject({ status: 'unknown', errorCode: 'interrupted' });
+      }
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('does not interrupt a fresh sending claim from another process', async () => {
+      const { service, repo, send } = build();
+      const record = seed(repo, { initial: 'sending', age: 1000 });
+      await service.recover();
+      expect(record.recipients[0].initial.status).toBe('sending');
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('waits longer than the configured provider timeout before declaring an interruption', async () => {
+      const { service, repo, send } = build({ timeoutMs: 120000 });
+      const record = seed(repo, { initial: 'sending', age: 45000 });
+      await service.recover();
+      expect(record.recipients[0].initial.status).toBe('sending');
+      record.recipients[0].initial.updatedAt = new Date(Date.now() - 151000).toISOString();
+      await service.recover();
+      expect(record.recipients[0].initial.status).toBe('unknown');
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('resumes a fresh queued initial job once across competing recovery passes', async () => {
+      const { service, repo, send } = build();
+      const record = seed(repo, { age: 1000 });
+      const other = new SosService(
+        repo as unknown as SosRepository,
+        {} as ProfileService,
+        { send },
+        { track: jest.fn() } as unknown as SmsDeliveryTracker,
+        {
+          get: (key: string) => (key === 'SOS_ENABLED' ? true : 10000),
+        } as unknown as ConfigService<EnvironmentVariables, true>,
+      );
+      await Promise.all([service.recover(), other.recover()]);
+      await service.recover();
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(record.recipients[0].initial.status).toBe('accepted');
+    });
+
+    it('expires queued end updates even on ended records', async () => {
+      const { service, repo, send } = build();
+      const record = seed(repo, { initial: 'accepted', ended: 'queued', stopped: true });
+      await service.recover();
+      expect(record.recipients[0].ended).toMatchObject({ status: 'failed', errorCode: 'expired' });
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('uses end-job creation time when a late initial result needs a follow-up', async () => {
+      const { service, repo, send } = build();
+      const record = seed(repo, {
+        initial: 'unknown',
+        ended: 'queued',
+        stopped: true,
+        endedAge: 1000,
+      });
+      await service.recover();
+      await service.recover();
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(record.recipients[0].initial.status).toBe('unknown');
+      expect(record.recipients[0].ended?.status).toBe('accepted');
+    });
+
+    it('creates one end update after recovering an interrupted initial on a stopped SOS', async () => {
+      const { service, repo, send } = build();
+      const record = seed(repo, { initial: 'sending', stopped: true });
+      await service.recover();
+      await service.recover();
+      expect(record.recipients[0].initial.status).toBe('unknown');
+      expect(record.recipients[0].ended?.status).toBe('accepted');
+      expect(send).toHaveBeenCalledTimes(1);
+    });
+
+    it('cancels queued initial sends on an ended SOS', async () => {
+      const { service, repo, send } = build();
+      const record = seed(repo, { stopped: true, age: 1000 });
+      await service.recover();
+      expect(record.recipients[0].initial.status).toBe('cancelled');
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('repairs a missing end job after a persisted unknown initial result', async () => {
+      const { service, repo, send } = build();
+      const record = seed(repo, { initial: 'unknown', stopped: true });
+      await service.recover();
+      await service.recover();
+      expect(record.recipients[0].initial.status).toBe('unknown');
+      expect(record.recipients[0].ended?.status).toBe('accepted');
+      expect(send).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps an initial job eligible at exactly the two-minute boundary', async () => {
+      jest.spyOn(Date, 'now').mockReturnValue(Date.now());
+      const { service, repo, send } = build();
+      seed(repo, { age: 120000 });
+      await service.recover();
+      expect(send).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps a queued end update waiting while the initial is sending', async () => {
+      const { service, repo, send } = build();
+      const record = seed(repo, { initial: 'sending', ended: 'queued', stopped: true, age: 1000 });
+      await service.recover();
+      expect(record.recipients[0].ended?.status).toBe('queued');
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('does not scan, start a timer, or send when disabled', async () => {
+      const { service, repo, send } = build({ enabled: false });
+      const list = jest.spyOn(repo, 'listPage');
+      const timer = jest.spyOn(global, 'setInterval');
+      const record = seed(repo, { age: 1000 });
+      service.onModuleInit();
+      await service.recover();
+      await service.stop(UID, record.sosId);
+      expect(list).not.toHaveBeenCalled();
+      expect(timer).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('runs at startup and periodically and clears its timer on shutdown', () => {
+      jest.useFakeTimers();
+      try {
+        const { service } = build();
+        const recover = jest.spyOn(service, 'recover').mockResolvedValue();
+        service.onModuleInit();
+        expect(recover).toHaveBeenCalledTimes(1);
+        jest.advanceTimersByTime(30000);
+        expect(recover).toHaveBeenCalledTimes(2);
+        service.onModuleDestroy();
+        jest.advanceTimersByTime(30000);
+        expect(recover).toHaveBeenCalledTimes(2);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('continues past a record failure and retries failed scans on the next pass', async () => {
+      const { service, repo } = build();
+      seed(repo, { id: 'a' });
+      const second = seed(repo, { id: 'b' });
+      jest.spyOn(repo, 'mutate').mockImplementationOnce(() => Promise.reject(new Error('failure')));
+      const list = jest.spyOn(repo, 'listPage').mockRejectedValueOnce(new Error('failure'));
+      await service.recover();
+      await service.recover();
+      expect(list).toHaveBeenCalled();
+      expect(second.recipients[0].initial.status).toBe('failed');
+    });
+
+    it('pages past 100 records so old completed records cannot hide pending work', async () => {
+      const { service, repo } = build();
+      for (let i = 0; i < 101; i += 1)
+        seed(repo, { id: `record-${String(i).padStart(3, '0')}`, initial: 'accepted' });
+      const pending = seed(repo, { id: 'z-pending' });
+      await service.recover();
+      expect(pending.recipients[0].initial.status).toBe('failed');
+    });
+  });
 
   describe('start', () => {
     it('creates an SOS, sends one SMS per recipient and reports accepted', async () => {

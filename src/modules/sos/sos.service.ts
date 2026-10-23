@@ -6,6 +6,8 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleDestroy,
+  OnModuleInit,
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -23,6 +25,8 @@ import {
   SOS_JOB_EXPIRY_MS,
   SOS_LOCATION_MAX_AGE_MS,
   SOS_LOCATION_MAX_FUTURE_MS,
+  SOS_RECOVERY_INTERVAL_MS,
+  SOS_SEND_GRACE_MS,
 } from './sos.constants';
 import type { StartSosDto } from './sos.dto';
 import type {
@@ -46,14 +50,13 @@ export function maskPhone(phone: string): string {
 
 // Manual SOS lifecycle and SMS dispatch.
 //
-// Core slice: dispatch runs in-process right after the SOS is durably saved,
-// with no leased multi-instance worker. A process crash mid-send leaves a
-// recipient in 'queued' or 'sending' (the full recovery design is in
-// docs/unimplemented-features/manual-sos-backend.md, section 4). Unknown
-// outcomes are never retried automatically.
+// Transactional queued -> sending claims prevent duplicate submissions.
+// Recovery never reclaims a sending attempt for resubmission.
 @Injectable()
-export class SosService {
+export class SosService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(SosService.name);
+  private recoveryTimer: ReturnType<typeof setInterval> | null = null;
+  private recovering = false;
 
   constructor(
     private readonly repository: SosRepository,
@@ -62,6 +65,102 @@ export class SosService {
     private readonly deliveryTracker: SmsDeliveryTracker,
     private readonly configService: ConfigService<EnvironmentVariables, true>,
   ) {}
+
+  onModuleInit(): void {
+    if (!this.configService.get('SOS_ENABLED', { infer: true })) return;
+    void this.recover();
+    this.recoveryTimer = setInterval(() => void this.recover(), SOS_RECOVERY_INTERVAL_MS);
+  }
+
+  onModuleDestroy(): void {
+    if (this.recoveryTimer) clearInterval(this.recoveryTimer);
+    this.recoveryTimer = null;
+  }
+
+  async recover(): Promise<void> {
+    if (this.recovering || !this.configService.get('SOS_ENABLED', { infer: true })) return;
+    this.recovering = true;
+    try {
+      let afterId: string | undefined;
+      for (;;) {
+        const page = await this.repository.listPage(afterId);
+        if (page.length === 0) break;
+        for (const record of page) {
+          if (
+            !record.recipients.some(
+              (r) =>
+                r.initial.status === 'queued' ||
+                r.initial.status === 'sending' ||
+                r.ended?.status === 'queued' ||
+                r.ended?.status === 'sending' ||
+                (record.status === 'ended' &&
+                  r.ended === null &&
+                  (r.initial.status === 'accepted' || r.initial.status === 'unknown')),
+            )
+          )
+            continue;
+          try {
+            await this.recoverRecord(record.sosId);
+          } catch {
+            this.logger.error(`SOS ${record.sosId}: recovery failed`);
+          }
+        }
+        afterId = page[page.length - 1].sosId;
+      }
+    } catch {
+      this.logger.error('SOS recovery scan failed');
+    } finally {
+      this.recovering = false;
+    }
+  }
+
+  private async recoverRecord(sosId: string): Promise<void> {
+    // Longer than either supported adapter's bounded HTTP timeout. Recheck
+    // persisted state inside the transaction so another process can stay live.
+    const staleAfter =
+      Math.max(
+        this.configService.get('TEXTBEE_TIMEOUT_MS', { infer: true }),
+        this.configService.get('SMS_API_PH_TIMEOUT_MS', { infer: true }),
+      ) + SOS_SEND_GRACE_MS;
+    const pending = await this.repository.mutate(sosId, (record) => {
+      const now = Date.now();
+      const nowIso = new Date(now).toISOString();
+      for (const recipient of record.recipients) {
+        for (const which of ['initial', 'ended'] as const) {
+          const current = recipient[which];
+          if (!current) continue;
+          if (current.status === 'sending' && now - Date.parse(current.updatedAt) > staleAfter) {
+            recipient[which] = this.summary('unknown', nowIso, 'interrupted');
+          } else if (current.status === 'queued') {
+            const queuedAt = which === 'initial' ? record.createdAt : current.updatedAt;
+            if (which === 'initial' && record.status === 'ended') {
+              recipient.initial = this.summary('cancelled', nowIso);
+            } else if (now - Date.parse(queuedAt) > SOS_JOB_EXPIRY_MS) {
+              recipient[which] = this.summary('failed', nowIso, 'expired');
+            }
+          }
+        }
+        // An interrupted initial send may have reached the contact. Ending
+        // that SOS needs one distinct follow-up, never a repeated initial.
+        if (
+          record.status === 'ended' &&
+          recipient.ended === null &&
+          (recipient.initial.status === 'accepted' || recipient.initial.status === 'unknown')
+        ) {
+          recipient.ended = this.summary('queued', nowIso);
+        }
+      }
+      return record.recipients.map((r) => ({
+        contactId: r.contactId,
+        initial: r.initial.status === 'queued',
+        ended: r.ended?.status === 'queued',
+      }));
+    });
+    for (const recipient of pending ?? []) {
+      if (recipient.initial) await this.sendInitial(sosId, recipient.contactId);
+      if (recipient.ended) await this.sendEnd(sosId, recipient.contactId);
+    }
+  }
 
   async start(uid: string, dto: StartSosDto): Promise<StartSosResult> {
     const fingerprint = this.fingerprint(dto);
@@ -237,6 +336,7 @@ export class SosService {
   }
 
   private async sendInitial(sosId: string, contactId: string): Promise<void> {
+    if (!this.configService.get('SOS_ENABLED', { infer: true })) return;
     try {
       const claim = await this.repository.mutate<SendClaim>(sosId, (record) => {
         const recipient = this.find(record, contactId);
@@ -294,6 +394,7 @@ export class SosService {
   }
 
   private async sendEnd(sosId: string, contactId: string): Promise<void> {
+    if (!this.configService.get('SOS_ENABLED', { infer: true })) return;
     try {
       const claim = await this.repository.mutate<SendClaim>(sosId, (record) => {
         const recipient = this.find(record, contactId);
@@ -308,7 +409,7 @@ export class SosService {
           recipient.ended = this.summary('failed', nowIso, 'message_too_long');
           return null;
         }
-        if (Date.now() - Date.parse(endedAt) > SOS_JOB_EXPIRY_MS) {
+        if (Date.now() - Date.parse(recipient.ended.updatedAt) > SOS_JOB_EXPIRY_MS) {
           recipient.ended = this.summary('failed', nowIso, 'expired');
           return null;
         }
