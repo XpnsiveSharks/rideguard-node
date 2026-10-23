@@ -20,6 +20,7 @@ import { AlertsModule } from './modules/alerts/alerts.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { SosModule } from './modules/sos/sos.module';
+import { MpinModule } from './modules/mpin/mpin.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { SosModule } from './modules/sos/sos.module';
     NotificationsModule,
     SettingsModule,
     SosModule,
+    MpinModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
