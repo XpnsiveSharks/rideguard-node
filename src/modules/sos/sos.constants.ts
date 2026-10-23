@@ -12,6 +12,8 @@ export const SOS_LOCATION_MAX_FUTURE_MS = 60 * 1000;
 // A job not submitted within this long of its creation is expired, never
 // replayed late.
 export const SOS_JOB_EXPIRY_MS = 2 * 60 * 1000;
+export const SOS_RECOVERY_INTERVAL_MS = 30 * 1000;
+export const SOS_SEND_GRACE_MS = 30 * 1000;
 
 export const SOS_TIME_ZONE = 'Asia/Manila';
 export const SOS_MAX_NAME_LENGTH = 30;

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { Firestore } from 'firebase-admin/firestore';
+import { FieldPath, Firestore } from 'firebase-admin/firestore';
 import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
 import { SOS_ACTIVE_COLLECTION, SOS_COLLECTION, SOS_REQUESTS_COLLECTION } from '../sos.constants';
 import type { SosRecord } from '../sos.types';
@@ -113,6 +113,17 @@ export class SosRepository {
 
   newId(): string {
     return this.firestore.collection(SOS_COLLECTION).doc().id;
+  }
+
+  // Document-ID paging needs no new index and includes ended SOS records.
+  async listPage(afterId?: string): Promise<SosRecord[]> {
+    let query = this.firestore
+      .collection(SOS_COLLECTION)
+      .orderBy(FieldPath.documentId())
+      .limit(100);
+    if (afterId) query = query.startAfter(afterId);
+    const page = await query.get();
+    return page.docs.map((doc) => doc.data() as SosRecord);
   }
 
   // Read-modify-write on one SOS inside a transaction. `change` may mutate
