@@ -16,3 +16,9 @@ export const SMS_API_PH_SEND_PATH = '/api/v1/send/sms';
 // exercised against a live account). The bulk-send and status/device GET
 // endpoints exist but are out of scope for this send-only adapter.
 export const TEXTBEE_SEND_PATH = '/api/v1/gateway/send-sms';
+
+export const SMS_STATUS_CHECKER = 'SMS_STATUS_CHECKER';
+
+// TextBee batch status lookup, `{deviceId}` and `{smsBatchId}` appended by the
+// adapter. Response shape observed live 2026-10-23.
+export const TEXTBEE_DEVICES_PATH = '/api/v1/gateway/devices';

@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { SmsModule } from './sms.module';
-import { SMS_SENDER } from './sms.constants';
+import { SMS_SENDER, SMS_STATUS_CHECKER } from './sms.constants';
 import type { SmsSender } from './sms-sender.interface';
 import type { SmsSendResult } from './sms.types';
 
@@ -29,6 +29,8 @@ describe('SmsModule replaceability', () => {
     })
       .overrideProvider(SMS_SENDER)
       .useValue(stubSender)
+      .overrideProvider(SMS_STATUS_CHECKER)
+      .useValue({ getStatus: jest.fn() })
       .compile();
 
     const caller = moduleRef.get(FakeSosCaller);

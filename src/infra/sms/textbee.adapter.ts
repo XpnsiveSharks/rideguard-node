@@ -2,10 +2,17 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { EnvironmentVariables } from '@/config/env.validation';
 import type { SmsSender } from './sms-sender.interface';
-import { SmsRejectionReason, type SmsSendInput, type SmsSendResult } from './sms.types';
+import type { SmsStatusChecker } from './sms-status-checker.interface';
+import {
+  SmsRejectionReason,
+  type SmsDeliveryStatus,
+  type SmsSendInput,
+  type SmsSendResult,
+} from './sms.types';
 import {
   PH_MOBILE_NUMBER_PATTERN,
   SMS_MAX_MESSAGE_LENGTH,
+  TEXTBEE_DEVICES_PATH,
   TEXTBEE_SEND_PATH,
 } from './sms.constants';
 
@@ -27,6 +34,16 @@ type TextBeeResponseBody = {
   error?: string;
 } & Record<string, unknown>;
 
+// Batch status lookup body (observed live 2026-10-23). One recipient per
+// send, so the single message entry is the authoritative state; the batch
+// status is only a fallback. Read defensively: the fields may sit under
+// `data` or at the top level.
+type TextBeeStatusPayload = {
+  batch?: { status?: string };
+  messages?: Array<{ status?: string; errorCode?: string | number }>;
+};
+type TextBeeStatusBody = TextBeeStatusPayload & { data?: TextBeeStatusPayload };
+
 // Sends one SMS through TextBee, which relays it to a paired Android phone
 // that sends through its own SIM. This adapter only talks to TextBee:
 // authentication, payload mapping, and response/error parsing all live here.
@@ -35,7 +52,7 @@ type TextBeeResponseBody = {
 // TextBee has no email/push fallback - every send goes through the paired
 // phone's SIM - so there is no alternate channel to misreport as SMS.
 @Injectable()
-export class TextBeeAdapter implements SmsSender {
+export class TextBeeAdapter implements SmsSender, SmsStatusChecker {
   private readonly logger = new Logger(TextBeeAdapter.name);
 
   constructor(private readonly configService: ConfigService<EnvironmentVariables, true>) {}
@@ -98,6 +115,91 @@ export class TextBeeAdapter implements SmsSender {
       return { outcome: 'unknown', reason: isTimeout ? 'timeout' : 'network_error' };
     } finally {
       clearTimeout(timeout);
+    }
+  }
+
+  // Looks up one accepted send by its smsBatchId. Never throws: any failure
+  // to learn the state is 'unknown', which says nothing about the message.
+  async getStatus(providerMessageId: string): Promise<SmsDeliveryStatus> {
+    const apiKey = this.configService.get('TEXTBEE_API_KEY', { infer: true });
+    const deviceId = this.configService.get('TEXTBEE_DEVICE_ID', { infer: true });
+    if (!apiKey || !deviceId) {
+      // The lookup route is per-device, so the device id is required here
+      // even though send() can omit it.
+      this.logger.error('SMS status lookup skipped: TEXTBEE_API_KEY or TEXTBEE_DEVICE_ID not set');
+      return { state: 'unknown', reason: 'not_configured' };
+    }
+
+    const baseUrl = this.configService.get('TEXTBEE_BASE_URL', { infer: true });
+    const timeoutMs = this.configService.get('TEXTBEE_TIMEOUT_MS', { infer: true });
+    const url =
+      `${baseUrl}${TEXTBEE_DEVICES_PATH}/${encodeURIComponent(deviceId)}` +
+      `/sms-batch/${encodeURIComponent(providerMessageId)}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: { 'x-api-key': apiKey },
+        signal: controller.signal,
+      });
+      return await this.toStatus(response);
+    } catch (error) {
+      const isTimeout = error instanceof Error && error.name === 'AbortError';
+      this.logger.warn(`SMS status unknown: ${isTimeout ? 'timeout' : 'network error'}`);
+      return { state: 'unknown', reason: isTimeout ? 'timeout' : 'network_error' };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async toStatus(response: Response): Promise<SmsDeliveryStatus> {
+    if (response.status === 401 || response.status === 403) {
+      return { state: 'unknown', reason: 'authentication_failed' };
+    }
+    if (response.status === 404) {
+      return { state: 'unknown', reason: 'not_found' };
+    }
+    if (response.status >= 500) {
+      return { state: 'unknown', reason: 'server_error' };
+    }
+
+    let body: TextBeeStatusBody | undefined;
+    try {
+      body = (await response.json()) as TextBeeStatusBody;
+    } catch {
+      body = undefined;
+    }
+    const payload = body?.data ?? body;
+    const message = payload?.messages?.[0];
+    const status = response.ok ? (message?.status ?? payload?.batch?.status) : undefined;
+
+    switch (status) {
+      case 'pending':
+      case 'processing':
+      case 'dispatched':
+        return { state: 'pending' };
+      // `completed` is a batch-level status that does not distinguish sent
+      // from delivered; claim only the weaker one.
+      case 'sent':
+      case 'completed':
+        return { state: 'sent' };
+      case 'delivered':
+        return { state: 'delivered' };
+      case 'failed': {
+        const code = message?.errorCode;
+        return {
+          state: 'failed',
+          ...(code !== undefined && code !== '' ? { errorCode: String(code) } : {}),
+        };
+      }
+      default:
+        this.logger.warn(
+          `TextBee returned an unrecognized status response (HTTP ${response.status})`,
+        );
+        return { state: 'unknown', reason: 'malformed_response' };
     }
   }
 

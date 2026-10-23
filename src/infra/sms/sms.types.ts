@@ -48,3 +48,31 @@ export type SmsSendResult =
       reason:
         'timeout' | 'network_error' | 'malformed_response' | 'server_error' | 'unconfirmed_channel';
     };
+
+// Provider-neutral delivery state of one previously accepted message.
+//
+// - 'pending': not yet handed to the radio (queued, processing, dispatched).
+//   Not final; poll again.
+// - 'sent': the handset reported it sent the SMS, but no carrier delivery
+//   receipt exists. Often the best a SIM-based gateway can report.
+// - 'delivered': a delivery receipt confirmed handset receipt. Final.
+// - 'failed': the provider confirmed it did not go out. Final. `errorCode` is
+//   the provider's code only, never its free-text message.
+// - 'unknown': the status could not be determined (lookup failed or the
+//   answer was not understood). Says nothing about the message itself.
+export type SmsDeliveryStatus =
+  | { state: 'pending' }
+  | { state: 'sent' }
+  | { state: 'delivered' }
+  | { state: 'failed'; errorCode?: string }
+  | {
+      state: 'unknown';
+      reason:
+        | 'timeout'
+        | 'network_error'
+        | 'malformed_response'
+        | 'server_error'
+        | 'not_found'
+        | 'authentication_failed'
+        | 'not_configured';
+    };
