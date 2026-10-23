@@ -25,6 +25,7 @@ export interface EnvironmentVariables {
   THROTTLE_TTL: number;
   THROTTLE_LIMIT: number;
   AUTO_ARCHIVE_ENABLED: boolean;
+  SOS_ENABLED: boolean;
   SMS_API_PH_BASE_URL: string;
   SMS_API_PH_API_KEY: string;
   SMS_API_PH_TIMEOUT_MS: number;
@@ -93,6 +94,10 @@ export const envValidationSchema = Joi.object<EnvironmentVariables, true>({
   // Gates the background auto-archive pass. Kept off until existing alerts are
   // backfilled with createdAt/isArchived and the composite indexes are built.
   AUTO_ARCHIVE_ENABLED: Joi.boolean().default(false),
+
+  // Gates manual SOS activation (POST /sos). Off until release checks pass;
+  // reading and stopping an existing SOS keep working when it is off.
+  SOS_ENABLED: Joi.boolean().default(false),
 
   // SMS API PH (see docs/unimplemented-features/replaceable-sms-provider.md).
   // No caller exists yet, so the key is not required to boot the app; the
