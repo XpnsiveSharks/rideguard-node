@@ -18,6 +18,7 @@ import { PH_MOBILE_NUMBER_PATTERN, SMS_SENDER } from '@/infra/sms/sms.constants'
 import type { SmsSender } from '@/infra/sms/sms-sender.interface';
 import type { SmsSendResult } from '@/infra/sms/sms.types';
 import { ProfileService } from '../profile/profile.service';
+import { AlertsService } from '../alerts/alerts.service';
 import { SosRepository } from './infrastructure/sos.repository';
 import { composeEndMessage, composeInitialMessage } from './sos-message';
 import {
@@ -64,6 +65,7 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
     @Inject(SMS_SENDER) private readonly smsSender: SmsSender,
     private readonly deliveryTracker: SmsDeliveryTracker,
     private readonly configService: ConfigService<EnvironmentVariables, true>,
+    private readonly alertsService: AlertsService,
   ) {}
 
   onModuleInit(): void {
@@ -180,6 +182,8 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
+    if (dto.alertId) await this.alertsService.getOwned(dto.alertId, uid);
+
     const now = new Date();
     const location = this.acceptLocation(dto.location, now);
     const recipients = await this.buildRecipients(uid, now);
@@ -189,6 +193,7 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
       sosId: this.repository.newId(),
       uid,
       requestId: dto.requestId,
+      alertId: dto.alertId ?? null,
       status: 'active',
       requesterName,
       createdAt: now.toISOString(),
@@ -213,6 +218,18 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
 
   async getOwned(uid: string, sosId: string): Promise<PublicSos> {
     return this.toPublic(await this.findOwned(uid, sosId));
+  }
+
+  async getByRequest(uid: string, requestId: string): Promise<PublicSos> {
+    const mapping = await this.repository.findByRequest(uid, requestId);
+    if (!mapping || mapping.record.uid !== uid) throw new NotFoundException('SOS not found');
+    return this.toPublic(mapping.record);
+  }
+
+  async getByAlert(uid: string, alertId: string): Promise<PublicSos | null> {
+    await this.alertsService.getOwned(alertId, uid);
+    const record = await this.repository.findLatestByAlert(uid, alertId);
+    return record ? this.toPublic(record) : null;
   }
 
   async stop(uid: string, sosId: string): Promise<PublicSos> {
@@ -261,6 +278,8 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
             location.accuracyMeters ?? null,
           ]
         : null,
+      // Preserve the two-element fingerprint for older unlinked requests.
+      ...(dto.alertId ? [dto.alertId] : []),
     ]);
   }
 
@@ -520,6 +539,7 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
     return {
       sosId: record.sosId,
       requestId: record.requestId,
+      alertId: record.alertId ?? null,
       status: record.status,
       createdAt: record.createdAt,
       endedAt: record.endedAt,

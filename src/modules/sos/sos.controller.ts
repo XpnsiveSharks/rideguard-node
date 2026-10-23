@@ -5,6 +5,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseUUIDPipe,
   Post,
   Req,
   Res,
@@ -48,6 +49,14 @@ export class SosController {
     return this.sosService.getActive(requireUid(req));
   }
 
+  @Get('by-request/:requestId')
+  getByRequest(
+    @Req() req: Request,
+    @Param('requestId', new ParseUUIDPipe()) requestId: string,
+  ): Promise<PublicSos> {
+    return this.sosService.getByRequest(requireUid(req), requestId);
+  }
+
   // USER ROUTE
   // route: GET /sos/:sosId
   @Get(':sosId')
@@ -61,5 +70,16 @@ export class SosController {
   @HttpCode(HttpStatus.OK)
   stop(@Req() req: Request, @Param('sosId') sosId: string): Promise<PublicSos> {
     return this.sosService.stop(requireUid(req), sosId);
+  }
+}
+
+// Kept in SosModule so AlertsModule does not depend on SOS dispatch.
+@Controller('alerts')
+export class AlertSosController {
+  constructor(private readonly sosService: SosService) {}
+
+  @Get(':alertId/sos')
+  getByAlert(@Req() req: Request, @Param('alertId') alertId: string): Promise<PublicSos | null> {
+    return this.sosService.getByAlert(requireUid(req), alertId);
   }
 }

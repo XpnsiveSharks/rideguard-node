@@ -30,7 +30,7 @@ export class SosRepository {
     if (!mapping.exists) return null;
     const { sosId, fingerprint } = mapping.data() as RequestMapping;
     const record = await this.get(sosId);
-    return record ? { record, fingerprint } : null;
+    return record?.uid === uid ? { record, fingerprint } : null;
   }
 
   async get(sosId: string): Promise<SosRecord | null> {
@@ -43,6 +43,27 @@ export class SosRepository {
     if (!pointer.exists) return null;
     const record = await this.get((pointer.data() as { sosId: string }).sosId);
     return record?.status === 'active' ? record : null;
+  }
+
+  async findLatestByAlert(uid: string, alertId: string): Promise<SosRecord | null> {
+    // A single-field query avoids requiring new index configuration. Filter
+    // ownership and choose the latest creation locally, including ended SOS.
+    const snapshot = await this.firestore
+      .collection(SOS_COLLECTION)
+      .where('alertId', '==', alertId)
+      .get();
+    let latest: SosRecord | null = null;
+    for (const doc of snapshot.docs) {
+      const record = doc.data() as SosRecord;
+      if (record.uid !== uid) continue;
+      if (
+        !latest ||
+        Date.parse(record.createdAt) > Date.parse(latest.createdAt) ||
+        (record.createdAt === latest.createdAt && record.sosId > latest.sosId)
+      )
+        latest = record;
+    }
+    return latest;
   }
 
   // Binds the request id, reserves the user's single active SOS and creates
