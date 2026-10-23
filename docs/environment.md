@@ -31,6 +31,13 @@ Copy-Item .env.example .env
 | `DEVICE_RESOLVER_SERVICE_KEY` | string | `replace-with-a-16-character-secret` | Shared key used by model-api for device camera lookup. |
 | `THROTTLE_TTL` | number | `60000` | Rate-limit window in milliseconds. |
 | `THROTTLE_LIMIT` | number | `100` | Maximum requests per client in the window. |
+| `SMS_API_PH_BASE_URL` | string (URI) | `https://smsapiph.onrender.com` | Base URL for the SMS API PH provider. Defaults to the documented host. |
+| `SMS_API_PH_API_KEY` | string | `your-smsapiph-api-key` | SMS API PH key, sent as the `x-api-key` header. Optional for now - no caller exists yet - but the adapter refuses to send without it. See [Replaceable SMS provider](unimplemented-features/replaceable-sms-provider.md). |
+| `SMS_API_PH_TIMEOUT_MS` | number | `10000` | Bounded request timeout for the SMS send call, in milliseconds. Defaults to `10000`. |
+| `TEXTBEE_BASE_URL` | string (URI) | `https://api.textbee.dev` | Base URL for the TextBee provider. Defaults to the documented host. |
+| `TEXTBEE_API_KEY` | string | `your-textbee-api-key` | TextBee key, sent as the `x-api-key` header. Optional for now - no caller exists yet - but the adapter refuses to send without it. See [Replaceable SMS provider](unimplemented-features/replaceable-sms-provider.md). |
+| `TEXTBEE_DEVICE_ID` | string | (empty) | Optional. Pins sends to one paired Android device. Omitted from the request entirely when unset, so TextBee uses its default device. |
+| `TEXTBEE_TIMEOUT_MS` | number | `10000` | Bounded request timeout for the TextBee send call, in milliseconds. Defaults to `10000`. |
 
 ## How Validation Works
 

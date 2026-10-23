@@ -25,6 +25,13 @@ export interface EnvironmentVariables {
   THROTTLE_TTL: number;
   THROTTLE_LIMIT: number;
   AUTO_ARCHIVE_ENABLED: boolean;
+  SMS_API_PH_BASE_URL: string;
+  SMS_API_PH_API_KEY: string;
+  SMS_API_PH_TIMEOUT_MS: number;
+  TEXTBEE_BASE_URL: string;
+  TEXTBEE_API_KEY: string;
+  TEXTBEE_DEVICE_ID: string;
+  TEXTBEE_TIMEOUT_MS: number;
 }
 
 const ABLY_API_KEY_PATTERN = /^[\w-]+\.[\w-]+:[\w=-]+$/;
@@ -86,4 +93,22 @@ export const envValidationSchema = Joi.object<EnvironmentVariables, true>({
   // Gates the background auto-archive pass. Kept off until existing alerts are
   // backfilled with createdAt/isArchived and the composite indexes are built.
   AUTO_ARCHIVE_ENABLED: Joi.boolean().default(false),
+
+  // SMS API PH (see docs/unimplemented-features/replaceable-sms-provider.md).
+  // No caller exists yet, so the key is not required to boot the app; the
+  // adapter fails clearly at send time instead if it is missing.
+  SMS_API_PH_BASE_URL: Joi.string().uri().default('https://smsapiph.onrender.com'),
+  SMS_API_PH_API_KEY: Joi.string().allow('').default(''),
+  SMS_API_PH_TIMEOUT_MS: Joi.number().integer().positive().default(10000),
+
+  // TextBee (see docs/unimplemented-features/replaceable-sms-provider.md).
+  // Relays sends through a paired Android phone's own SIM. No caller exists
+  // yet, so the key is not required to boot the app; the adapter fails
+  // clearly at send time instead if it is missing.
+  TEXTBEE_BASE_URL: Joi.string().uri().default('https://api.textbee.dev'),
+  TEXTBEE_API_KEY: Joi.string().allow('').default(''),
+  // Optional: pins sends to one paired device. Omitted from the request
+  // entirely when unset so TextBee picks its own default device.
+  TEXTBEE_DEVICE_ID: Joi.string().allow('').default(''),
+  TEXTBEE_TIMEOUT_MS: Joi.number().integer().positive().default(10000),
 });
