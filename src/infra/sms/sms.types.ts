@@ -21,7 +21,11 @@ export type SmsRejectionReason = (typeof SmsRejectionReason)[keyof typeof SmsRej
 // Provider-neutral outcome of one send attempt.
 //
 // - 'accepted': the provider confirmed it received the message. This is
-//   submission acceptance, never handset delivery.
+//   submission acceptance, never handset delivery. `warning` carries a
+//   provider-supplied code (never message text) when the provider accepted the
+//   message but flagged that it is likely to fail, e.g. TextBee's
+//   SMS_PERMISSION_MISSING. Callers should treat a warned send as at risk and
+//   verify delivery before relying on it.
 // - 'rejected': the provider (or local validation) definitely did not send
 //   it. Safe to surface as a failure; retryable says whether the exact same
 //   request may succeed later without caller changes.
@@ -37,7 +41,7 @@ export type SmsRejectionReason = (typeof SmsRejectionReason)[keyof typeof SmsRej
 // submission, so treating it as a confirmed rejection risks a false
 // rejection and an unsafe blind retry.
 export type SmsSendResult =
-  | { outcome: 'accepted'; providerMessageId?: string }
+  | { outcome: 'accepted'; providerMessageId?: string; warning?: string }
   | { outcome: 'rejected'; reason: SmsRejectionReason; retryable: boolean; retryAfterMs?: number }
   | {
       outcome: 'unknown';

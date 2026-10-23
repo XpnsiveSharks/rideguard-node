@@ -97,12 +97,29 @@ describe('TextBeeAdapter.send', () => {
     // TextBee still returns 200 with data.success: true and holds the message
     // until the phone reconnects. That is acceptance, not delivery, so it is
     // deliberately not special-cased.
+    global.fetch = jest
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(200, successBody({ message: 'SMS added to queue for processing' })),
+      );
+
+    const adapter = new TextBeeAdapter(fakeConfig());
+    const result = await adapter.send({ recipient: VALID_RECIPIENT, message: VALID_MESSAGE });
+
+    expect(result).toEqual({ outcome: 'accepted', providerMessageId: 'batch-123' });
+    expect(result).not.toHaveProperty('warning');
+  });
+
+  it('passes up the warning code when TextBee accepts but flags SMS permission as off', async () => {
+    // Real response shape seen live on 2026-10-23.
     global.fetch = jest.fn().mockResolvedValue(
       jsonResponse(
         200,
         successBody({
-          message: 'SMS added to queue for processing',
-          warning: { code: 'OFFLINE' },
+          warning: {
+            code: 'SMS_PERMISSION_MISSING',
+            message: 'The textbee app on this phone last reported the SMS permission as off.',
+          },
         }),
       ),
     );
@@ -110,7 +127,27 @@ describe('TextBeeAdapter.send', () => {
     const adapter = new TextBeeAdapter(fakeConfig());
     const result = await adapter.send({ recipient: VALID_RECIPIENT, message: VALID_MESSAGE });
 
+    // Still accepted (not delivery), but the risk is visible to the caller.
+    // Only the code is passed on, never the provider's free-text message.
+    expect(result).toEqual({
+      outcome: 'accepted',
+      providerMessageId: 'batch-123',
+      warning: 'SMS_PERMISSION_MISSING',
+    });
+  });
+
+  it.each([
+    ['no code', { message: 'something' }],
+    ['an empty code', { code: '' }],
+    ['a non-string code', { code: 42 }],
+  ])('ignores a warning with %s', async (_label, warning) => {
+    global.fetch = jest.fn().mockResolvedValue(jsonResponse(200, successBody({ warning })));
+
+    const adapter = new TextBeeAdapter(fakeConfig());
+    const result = await adapter.send({ recipient: VALID_RECIPIENT, message: VALID_MESSAGE });
+
     expect(result).toEqual({ outcome: 'accepted', providerMessageId: 'batch-123' });
+    expect(result).not.toHaveProperty('warning');
   });
 
   it.each([401, 403])(

@@ -19,6 +19,9 @@ type TextBeeResponseBody = {
     message?: string;
     smsBatchId?: string;
     recipientCount?: number;
+    // Present when TextBee accepted the message but expects it to fail, e.g.
+    // { code: 'SMS_PERMISSION_MISSING', message: '...' } (seen live 2026-10-23).
+    warning?: { code?: string; message?: string };
   };
   success?: boolean;
   error?: string;
@@ -161,7 +164,18 @@ export class TextBeeAdapter implements SmsSender {
     // offline and the message is queued until it reconnects. Both are
     // acceptance, not delivery, which is exactly what 'accepted' means here.
     if (response.ok && body?.data?.success === true) {
-      return { outcome: 'accepted', providerMessageId: this.extractProviderMessageId(body) };
+      // TextBee can accept a message and still warn that it will likely fail
+      // (e.g. SMS permission off on the paired phone). Pass only the code up so
+      // a caller can see the risk; never the provider's free-text message.
+      const warning = this.extractWarningCode(body);
+      if (warning) {
+        this.logger.warn(`TextBee accepted the message with a warning (${warning})`);
+      }
+      return {
+        outcome: 'accepted',
+        providerMessageId: this.extractProviderMessageId(body),
+        ...(warning ? { warning } : {}),
+      };
     }
 
     this.logger.warn(`TextBee returned an unrecognized response (HTTP ${response.status})`);
@@ -180,6 +194,11 @@ export class TextBeeAdapter implements SmsSender {
   private extractProviderMessageId(body: TextBeeResponseBody): string | undefined {
     const candidate = body.data?.smsBatchId;
     return typeof candidate === 'string' ? candidate : undefined;
+  }
+
+  private extractWarningCode(body: TextBeeResponseBody): string | undefined {
+    const code = body.data?.warning?.code;
+    return typeof code === 'string' && code.length > 0 ? code : undefined;
   }
 
   private parseRetryAfterMs(headerValue: string | null): number | undefined {
