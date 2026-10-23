@@ -50,9 +50,7 @@ export class AlertsRepository {
       query = query.where('isArchived', '==', true);
     }
 
-    query = query
-      .orderBy('timeStamp', 'desc')
-      .orderBy(FieldPath.documentId(), 'desc');
+    query = query.orderBy('timeStamp', 'desc').orderBy(FieldPath.documentId(), 'desc');
 
     if (cursor) {
       const cursorDocument = await alertsCollection.doc(cursor).get();
@@ -80,16 +78,27 @@ export class AlertsRepository {
     };
   }
 
-  async updateIsSeen(alertId: string, deviceIds: string[], isSeen: boolean): Promise<Alert> {
-    const alertDocument = this.firestoreClient.collection(ALERTS_COLLECTION).doc(alertId);
-    const alertSnapshot = await alertDocument.get();
+  private async findOwnedData(alertId: string, deviceIds: string[]): Promise<AlertFields> {
+    const alertSnapshot = await this.firestoreClient
+      .collection(ALERTS_COLLECTION)
+      .doc(alertId)
+      .get();
     const alertData = alertSnapshot.data() as AlertFields | undefined;
 
     if (!alertSnapshot.exists || !alertData || !deviceIds.includes(alertData.deviceId)) {
       throw new NotFoundException('Alert not found.');
     }
 
-    await alertDocument.update({ isSeen });
+    return alertData;
+  }
+
+  async getOwned(alertId: string, deviceIds: string[]): Promise<Alert> {
+    return AlertsMapper.toDomain(alertId, await this.findOwnedData(alertId, deviceIds));
+  }
+
+  async updateIsSeen(alertId: string, deviceIds: string[], isSeen: boolean): Promise<Alert> {
+    const alertData = await this.findOwnedData(alertId, deviceIds);
+    await this.firestoreClient.collection(ALERTS_COLLECTION).doc(alertId).update({ isSeen });
 
     return AlertsMapper.toDomain(alertId, { ...alertData, isSeen });
   }
@@ -99,15 +108,8 @@ export class AlertsRepository {
     deviceIds: string[],
     isFalseAlarm: boolean,
   ): Promise<Alert> {
-    const alertDocument = this.firestoreClient.collection(ALERTS_COLLECTION).doc(alertId);
-    const alertSnapshot = await alertDocument.get();
-    const alertData = alertSnapshot.data() as AlertFields | undefined;
-
-    if (!alertSnapshot.exists || !alertData || !deviceIds.includes(alertData.deviceId)) {
-      throw new NotFoundException('Alert not found.');
-    }
-
-    await alertDocument.update({ isFalseAlarm });
+    const alertData = await this.findOwnedData(alertId, deviceIds);
+    await this.firestoreClient.collection(ALERTS_COLLECTION).doc(alertId).update({ isFalseAlarm });
 
     return AlertsMapper.toDomain(alertId, { ...alertData, isFalseAlarm });
   }

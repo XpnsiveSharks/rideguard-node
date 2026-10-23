@@ -114,6 +114,12 @@ export class AlertsService {
     };
   }
 
+  // Read with the same assigned-device ownership check as status updates.
+  async getOwned(alertId: string, assignedUserId: string): Promise<Alert> {
+    const deviceIds = await this.diviceService.findDeviceIdsByAssignedUser(assignedUserId);
+    return this.alertsRepository.getOwned(alertId, deviceIds);
+  }
+
   // *** UPDATE ALERT SEEN STATUS - USER ***
   async updateAlertSeen(alertId: string, assignedUserId: string, isSeen: boolean): Promise<Alert> {
     const deviceIds = await this.diviceService.findDeviceIdsByAssignedUser(assignedUserId);

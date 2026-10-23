@@ -1,0 +1,841 @@
+{
+  "info": {
+    "name": "RideGuard Manual SOS",
+    "description": "Local-only regression collection. Requires an isolated backend with fake SMS and persistence dependencies, owned alertId and unlinkedAlertId fixtures, a foreignAlertId, and test users represented by firebaseIdToken, foreignToken, and noContactsToken. Default sosTestMode blocks every request. Never point it at a live SMS sender. Acceptance is not delivery. No retries. See docs/v1-sos-routes.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{firebaseIdToken}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5565/v1"
+    },
+    {
+      "key": "sosTestMode",
+      "value": "disabled"
+    },
+    {
+      "key": "firebaseIdToken",
+      "value": ""
+    },
+    {
+      "key": "foreignToken",
+      "value": ""
+    },
+    {
+      "key": "noContactsToken",
+      "value": ""
+    },
+    {
+      "key": "alertId",
+      "value": ""
+    },
+    {
+      "key": "unlinkedAlertId",
+      "value": ""
+    },
+    {
+      "key": "foreignAlertId",
+      "value": ""
+    },
+    {
+      "key": "requestId",
+      "value": ""
+    },
+    {
+      "key": "sosId",
+      "value": ""
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (pm.variables.get('sosTestMode') !== 'stubbed') { pm.execution.skipRequest(); throw new Error('Use an isolated local backend with a fake SMS sender; set sosTestMode=stubbed only for that backend.' ); }",
+          "if (!/^http:\\/\\/(localhost|127\\.0\\.0\\.1)(:\\d+)?\\/v1$/.test(pm.variables.get('baseUrl'))) { pm.execution.skipRequest(); throw new Error('SOS collection is restricted to a loopback /v1 target.' ); }"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Lifecycle and lookups",
+      "item": [
+        {
+          "name": "Owned alert without SOS",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/alerts/{{unlinkedAlertId}}/sos",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });",
+                  "pm.test('no linked SOS', () => pm.expect(pm.response.json().data).to.eql(null));"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "Owned alert has no linked SOS",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": "{{baseUrl}}/alerts/{{unlinkedAlertId}}/sos",
+                "description": ""
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Request completed successfully\",\n  \"timestamp\": \"2026-10-24T00:00:00.000Z\",\n  \"data\": null\n}"
+            }
+          ]
+        },
+        {
+          "name": "Activate linked SOS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/sos",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"alertId\": \"{{alertId}}\",\n  \"location\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('requestId', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });",
+                  "pm.test('public SOS shape', () => { const d = pm.response.json().data; pm.expect(d.sosId).to.be.a('string'); pm.expect(d.requestId).to.be.a('string'); pm.expect(d).to.have.property('alertId'); pm.expect(d).not.to.have.property('uid'); pm.expect(d).not.to.have.property('requesterName'); pm.expect(d.recipients).to.be.an('array').that.is.not.empty; for (const r of d.recipients) { pm.expect(r.phone).to.include('*'); pm.expect(r).not.to.have.property('providerMessageId'); pm.expect(['queued','sending','accepted','failed','unknown','cancelled']).to.include(r.initial.status); } });",
+                  "pm.collectionVariables.set('sosId', pm.response.json().data.sosId);",
+                  "pm.test('alert linked', () => pm.expect(pm.response.json().data.alertId).to.eql(pm.variables.get('alertId')));"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "Created SOS with an unknown submission outcome",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": "{{baseUrl}}/sos",
+                "description": "",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"alertId\": \"{{alertId}}\",\n  \"location\": null\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              },
+              "status": "Created",
+              "code": 201,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Request completed successfully\",\n  \"timestamp\": \"2026-10-24T00:00:00.000Z\",\n  \"data\": {\n    \"sosId\": \"example-sos\",\n    \"requestId\": \"00000000-0000-4000-8000-000000000001\",\n    \"alertId\": \"example-alert\",\n    \"status\": \"active\",\n    \"createdAt\": \"2026-10-24T00:00:00.000Z\",\n    \"endedAt\": null,\n    \"location\": null,\n    \"recipients\": [\n      {\n        \"contactId\": \"example-contact\",\n        \"name\": \"Test contact\",\n        \"phone\": \"+639******000\",\n        \"initial\": {\n          \"status\": \"unknown\",\n          \"updatedAt\": \"2026-10-24T00:00:00.000Z\",\n          \"errorCode\": \"timeout\"\n        },\n        \"ended\": null\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Replay activation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/sos",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"alertId\": \"{{alertId}}\",\n  \"location\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });",
+                  "pm.test('public SOS shape', () => { const d = pm.response.json().data; pm.expect(d.sosId).to.be.a('string'); pm.expect(d.requestId).to.be.a('string'); pm.expect(d).to.have.property('alertId'); pm.expect(d).not.to.have.property('uid'); pm.expect(d).not.to.have.property('requesterName'); pm.expect(d.recipients).to.be.an('array').that.is.not.empty; for (const r of d.recipients) { pm.expect(r.phone).to.include('*'); pm.expect(r).not.to.have.property('providerMessageId'); pm.expect(['queued','sending','accepted','failed','unknown','cancelled']).to.include(r.initial.status); } });",
+                  "pm.test('same SOS', () => pm.expect(pm.response.json().data.sosId).to.eql(pm.collectionVariables.get('sosId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get active SOS",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/sos/active",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });",
+                  "pm.test('public SOS shape', () => { const d = pm.response.json().data; pm.expect(d.sosId).to.be.a('string'); pm.expect(d.requestId).to.be.a('string'); pm.expect(d).to.have.property('alertId'); pm.expect(d).not.to.have.property('uid'); pm.expect(d).not.to.have.property('requesterName'); pm.expect(d.recipients).to.be.an('array').that.is.not.empty; for (const r of d.recipients) { pm.expect(r.phone).to.include('*'); pm.expect(r).not.to.have.property('providerMessageId'); pm.expect(['queued','sending','accepted','failed','unknown','cancelled']).to.include(r.initial.status); } });",
+                  "pm.test('same SOS', () => pm.expect(pm.response.json().data.sosId).to.eql(pm.collectionVariables.get('sosId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lookup by request",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/sos/by-request/{{requestId}}",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });",
+                  "pm.test('public SOS shape', () => { const d = pm.response.json().data; pm.expect(d.sosId).to.be.a('string'); pm.expect(d.requestId).to.be.a('string'); pm.expect(d).to.have.property('alertId'); pm.expect(d).not.to.have.property('uid'); pm.expect(d).not.to.have.property('requesterName'); pm.expect(d.recipients).to.be.an('array').that.is.not.empty; for (const r of d.recipients) { pm.expect(r.phone).to.include('*'); pm.expect(r).not.to.have.property('providerMessageId'); pm.expect(['queued','sending','accepted','failed','unknown','cancelled']).to.include(r.initial.status); } });",
+                  "pm.test('same SOS', () => pm.expect(pm.response.json().data.sosId).to.eql(pm.collectionVariables.get('sosId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lookup by alert",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/alerts/{{alertId}}/sos",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });",
+                  "pm.test('public SOS shape', () => { const d = pm.response.json().data; pm.expect(d.sosId).to.be.a('string'); pm.expect(d.requestId).to.be.a('string'); pm.expect(d).to.have.property('alertId'); pm.expect(d).not.to.have.property('uid'); pm.expect(d).not.to.have.property('requesterName'); pm.expect(d.recipients).to.be.an('array').that.is.not.empty; for (const r of d.recipients) { pm.expect(r.phone).to.include('*'); pm.expect(r).not.to.have.property('providerMessageId'); pm.expect(['queued','sending','accepted','failed','unknown','cancelled']).to.include(r.initial.status); } });",
+                  "pm.test('same SOS', () => pm.expect(pm.response.json().data.sosId).to.eql(pm.collectionVariables.get('sosId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lookup by SOS ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/sos/{{sosId}}",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });",
+                  "pm.test('public SOS shape', () => { const d = pm.response.json().data; pm.expect(d.sosId).to.be.a('string'); pm.expect(d.requestId).to.be.a('string'); pm.expect(d).to.have.property('alertId'); pm.expect(d).not.to.have.property('uid'); pm.expect(d).not.to.have.property('requesterName'); pm.expect(d.recipients).to.be.an('array').that.is.not.empty; for (const r of d.recipients) { pm.expect(r.phone).to.include('*'); pm.expect(r).not.to.have.property('providerMessageId'); pm.expect(['queued','sending','accepted','failed','unknown','cancelled']).to.include(r.initial.status); } });",
+                  "pm.test('same SOS', () => pm.expect(pm.response.json().data.sosId).to.eql(pm.collectionVariables.get('sosId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Stop SOS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/sos/{{sosId}}/stop",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });",
+                  "pm.test('public SOS shape', () => { const d = pm.response.json().data; pm.expect(d.sosId).to.be.a('string'); pm.expect(d.requestId).to.be.a('string'); pm.expect(d).to.have.property('alertId'); pm.expect(d).not.to.have.property('uid'); pm.expect(d).not.to.have.property('requesterName'); pm.expect(d.recipients).to.be.an('array').that.is.not.empty; for (const r of d.recipients) { pm.expect(r.phone).to.include('*'); pm.expect(r).not.to.have.property('providerMessageId'); pm.expect(['queued','sending','accepted','failed','unknown','cancelled']).to.include(r.initial.status); } });",
+                  "pm.test('same SOS', () => pm.expect(pm.response.json().data.sosId).to.eql(pm.collectionVariables.get('sosId')));",
+                  "pm.test('ended', () => pm.expect(pm.response.json().data.status).to.eql('ended'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Stop again",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/sos/{{sosId}}/stop",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });",
+                  "pm.test('public SOS shape', () => { const d = pm.response.json().data; pm.expect(d.sosId).to.be.a('string'); pm.expect(d.requestId).to.be.a('string'); pm.expect(d).to.have.property('alertId'); pm.expect(d).not.to.have.property('uid'); pm.expect(d).not.to.have.property('requesterName'); pm.expect(d.recipients).to.be.an('array').that.is.not.empty; for (const r of d.recipients) { pm.expect(r.phone).to.include('*'); pm.expect(r).not.to.have.property('providerMessageId'); pm.expect(['queued','sending','accepted','failed','unknown','cancelled']).to.include(r.initial.status); } });",
+                  "pm.test('same SOS', () => pm.expect(pm.response.json().data.sosId).to.eql(pm.collectionVariables.get('sosId')));",
+                  "pm.test('still ended', () => pm.expect(pm.response.json().data.status).to.eql('ended'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Replay after stop",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/sos",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"alertId\": \"{{alertId}}\",\n  \"location\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });",
+                  "pm.test('public SOS shape', () => { const d = pm.response.json().data; pm.expect(d.sosId).to.be.a('string'); pm.expect(d.requestId).to.be.a('string'); pm.expect(d).to.have.property('alertId'); pm.expect(d).not.to.have.property('uid'); pm.expect(d).not.to.have.property('requesterName'); pm.expect(d.recipients).to.be.an('array').that.is.not.empty; for (const r of d.recipients) { pm.expect(r.phone).to.include('*'); pm.expect(r).not.to.have.property('providerMessageId'); pm.expect(['queued','sending','accepted','failed','unknown','cancelled']).to.include(r.initial.status); } });",
+                  "pm.test('same SOS', () => pm.expect(pm.response.json().data.sosId).to.eql(pm.collectionVariables.get('sosId')));",
+                  "pm.test('does not restart', () => pm.expect(pm.response.json().data.status).to.eql('ended'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Request lookup after stop",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/sos/by-request/{{requestId}}",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });",
+                  "pm.test('public SOS shape', () => { const d = pm.response.json().data; pm.expect(d.sosId).to.be.a('string'); pm.expect(d.requestId).to.be.a('string'); pm.expect(d).to.have.property('alertId'); pm.expect(d).not.to.have.property('uid'); pm.expect(d).not.to.have.property('requesterName'); pm.expect(d.recipients).to.be.an('array').that.is.not.empty; for (const r of d.recipients) { pm.expect(r.phone).to.include('*'); pm.expect(r).not.to.have.property('providerMessageId'); pm.expect(['queued','sending','accepted','failed','unknown','cancelled']).to.include(r.initial.status); } });",
+                  "pm.test('same SOS', () => pm.expect(pm.response.json().data.sosId).to.eql(pm.collectionVariables.get('sosId')));",
+                  "pm.test('ended request resolves', () => pm.expect(pm.response.json().data.status).to.eql('ended'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Alert lookup after stop",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/alerts/{{alertId}}/sos",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });",
+                  "pm.test('public SOS shape', () => { const d = pm.response.json().data; pm.expect(d.sosId).to.be.a('string'); pm.expect(d.requestId).to.be.a('string'); pm.expect(d).to.have.property('alertId'); pm.expect(d).not.to.have.property('uid'); pm.expect(d).not.to.have.property('requesterName'); pm.expect(d.recipients).to.be.an('array').that.is.not.empty; for (const r of d.recipients) { pm.expect(r.phone).to.include('*'); pm.expect(r).not.to.have.property('providerMessageId'); pm.expect(['queued','sending','accepted','failed','unknown','cancelled']).to.include(r.initial.status); } });",
+                  "pm.test('same SOS', () => pm.expect(pm.response.json().data.sosId).to.eql(pm.collectionVariables.get('sosId')));",
+                  "pm.test('latest linked SOS may be ended', () => pm.expect(pm.response.json().data.status).to.eql('ended'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "No active SOS after stop",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/sos/active",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });",
+                  "pm.test('no active SOS', () => pm.expect(pm.response.json().data).to.eql(null));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Errors and isolation",
+      "item": [
+        {
+          "name": "Missing authentication",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/sos/active",
+            "description": "",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Foreign SOS ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/sos/{{sosId}}",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{foreignToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 404', () => pm.response.to.have.status(404));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Foreign request lookup",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/sos/by-request/{{requestId}}",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{foreignToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 404', () => pm.response.to.have.status(404));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Foreign alert lookup",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/alerts/{{foreignAlertId}}/sos",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 404', () => pm.response.to.have.status(404));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Foreign alert activation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/sos",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{$guid}}\",\n  \"alertId\": \"{{foreignAlertId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 404', () => pm.response.to.have.status(404));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "No usable contacts",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/sos",
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{noContactsToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{$guid}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 422', () => pm.response.to.have.status(422));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });",
+                  "pm.test('no contacts code', () => pm.expect(pm.response.json().code).to.eql('SOS_NO_CONTACTS'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Malformed request ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/sos/by-request/not-a-uuid",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 400', () => pm.response.to.have.status(400));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Changed alert conflicts with request replay",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/sos",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{requestId}}\",\n  \"alertId\": \"{{unlinkedAlertId}}\",\n  \"location\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 409', () => pm.response.to.have.status(409));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });",
+                  "pm.test('conflict code', () => pm.expect(pm.response.json().code).to.eql('SOS_REQUEST_CONFLICT'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid alert ID",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{baseUrl}}/sos",
+            "description": "",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"requestId\": \"{{$guid}}\",\n  \"alertId\": \"invalid/id\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 400', () => pm.response.to.have.status(400));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Missing SOS",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/sos/missing-sos",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 404', () => pm.response.to.have.status(404));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Missing request",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/sos/by-request/00000000-0000-4000-8000-000000000000",
+            "description": ""
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 404', () => pm.response.to.have.status(404));",
+                  "pm.test('standard response envelope', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(pm.response.code < 400); pm.expect(b.message).to.be.a('string'); pm.expect(b.timestamp).to.be.a('string'); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

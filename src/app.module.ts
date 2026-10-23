@@ -19,6 +19,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
 import { AlertsModule } from './modules/alerts/alerts.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { SosModule } from './modules/sos/sos.module';
 import { MpinModule } from './modules/mpin/mpin.module';
 
 @Module({
@@ -40,6 +41,7 @@ import { MpinModule } from './modules/mpin/mpin.module';
     AlertsModule,
     NotificationsModule,
     SettingsModule,
+    SosModule,
     MpinModule,
   ],
   providers: [
