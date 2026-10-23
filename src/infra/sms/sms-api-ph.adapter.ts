@@ -5,7 +5,7 @@ import type { SmsSender } from './sms-sender.interface';
 import { SmsRejectionReason, type SmsSendInput, type SmsSendResult } from './sms.types';
 import {
   PH_MOBILE_NUMBER_PATTERN,
-  SMS_API_PH_MAX_MESSAGE_LENGTH,
+  SMS_MAX_MESSAGE_LENGTH,
   SMS_API_PH_SEND_PATH,
 } from './sms.constants';
 
@@ -110,7 +110,7 @@ export class SmsApiPhAdapter implements SmsSender {
         retryable: false,
       };
     }
-    if (input.message.length === 0 || input.message.length > SMS_API_PH_MAX_MESSAGE_LENGTH) {
+    if (input.message.length === 0 || input.message.length > SMS_MAX_MESSAGE_LENGTH) {
       return { outcome: 'rejected', reason: SmsRejectionReason.MESSAGE_TOO_LONG, retryable: false };
     }
     return undefined;
