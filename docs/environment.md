@@ -38,6 +38,7 @@ Copy-Item .env.example .env
 | `TEXTBEE_API_KEY` | string | `your-textbee-api-key` | TextBee key, sent as the `x-api-key` header. Optional for now - no caller exists yet - but the adapter refuses to send without it. See [Replaceable SMS provider](unimplemented-features/replaceable-sms-provider.md). |
 | `TEXTBEE_DEVICE_ID` | string | (empty) | Optional. Pins sends to one paired Android device. Omitted from the request entirely when unset, so TextBee uses its default device. |
 | `TEXTBEE_TIMEOUT_MS` | number | `10000` | Bounded request timeout for the TextBee send call, in milliseconds. Defaults to `10000`. |
+| `SOS_ENABLED` | boolean | `false` | Gates `POST /sos` (manual SOS activation). When off, activation returns 503 `SOS_DISABLED`; replaying a finished request, reading, and stopping an existing SOS still work. Keep off until release checks pass. |
 
 ## How Validation Works
 
