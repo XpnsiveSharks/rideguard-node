@@ -1,0 +1,471 @@
+{
+  "info": {
+    "_postman_id": "rideguard-delete-account-v1",
+    "name": "RideGuard Delete Account",
+    "description": "Endpoints for password-confirmed account deletion with grace period.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5565/v1"
+    },
+    {
+      "key": "firebaseIdToken",
+      "value": "PASTE_YOUR_FIREBASE_ID_TOKEN_HERE"
+    },
+    {
+      "key": "idToken",
+      "value": "PASTE_YOUR_FIREBASE_ID_TOKEN_HERE"
+    },
+    {
+      "key": "password",
+      "value": "Password1"
+    }
+  ],
+  "item": [
+    {
+      "name": "Request Deletion",
+      "item": [
+        {
+          "name": "Request deletion (valid password)",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{firebaseIdToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/auth/delete-account",
+            "description": "Schedules account deletion after the grace period. Requires verified account password."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Scheduled is true', () => pm.expect(pm.response.json().data.scheduled).to.eql(true));",
+                  "pm.test('Has deletionScheduledAt', () => pm.expect(pm.response.json().data.deletionScheduledAt).to.be.a('string'));"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "Account deletion scheduled",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"password\": \"Password1\"\n}"
+                },
+                "url": "{{baseUrl}}/auth/delete-account"
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Account deletion scheduled successfully\",\n  \"data\": {\n    \"scheduled\": true,\n    \"deletionScheduledAt\": \"2026-11-24T16:00:00.000Z\"\n  },\n  \"timestamp\": \"2026-10-25T16:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Request deletion (wrong password)",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{firebaseIdToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"wrong-password\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/auth/delete-account",
+            "description": "Fails with 401 when account password is incorrect."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "Invalid password",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"password\": \"wrong-password\"\n}"
+                },
+                "url": "{{baseUrl}}/auth/delete-account"
+              },
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": false,\n  \"message\": \"Invalid password.\",\n  \"statusCode\": 401,\n  \"timestamp\": \"2026-10-25T16:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Request deletion (unauthenticated)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"password\": \"{{password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/auth/delete-account",
+            "description": "Fails with 401 when missing bearer token."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "Missing bearer token",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"password\": \"Password1\"\n}"
+                },
+                "url": "{{baseUrl}}/auth/delete-account"
+              },
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": false,\n  \"message\": \"Missing bearer token\",\n  \"statusCode\": 401,\n  \"timestamp\": \"2026-10-25T16:00:00.000Z\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Cancel Deletion",
+      "item": [
+        {
+          "name": "Cancel deletion",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{firebaseIdToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/auth/delete-account/cancel",
+            "description": "Cancels scheduled deletion and re-enables account."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Scheduled is false', () => pm.expect(pm.response.json().data.scheduled).to.eql(false));"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "Account deletion cancelled",
+              "originalRequest": {
+                "method": "POST",
+                "url": "{{baseUrl}}/auth/delete-account/cancel"
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Account deletion cancelled successfully\",\n  \"data\": {\n    \"scheduled\": false\n  },\n  \"timestamp\": \"2026-10-25T16:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Cancel deletion (unauthenticated)",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/delete-account/cancel",
+            "description": "Fails with 401 when missing bearer token."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "Missing bearer token",
+              "originalRequest": {
+                "method": "POST",
+                "url": "{{baseUrl}}/auth/delete-account/cancel"
+              },
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": false,\n  \"message\": \"Missing bearer token\",\n  \"statusCode\": 401,\n  \"timestamp\": \"2026-10-25T16:00:00.000Z\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Deletion Status",
+      "item": [
+        {
+          "name": "Status (scheduled)",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{firebaseIdToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/auth/delete-account/status",
+            "description": "Returns scheduled status and deletion timestamp when deletion is pending."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Scheduled is true', () => pm.expect(pm.response.json().data.scheduled).to.eql(true));",
+                  "pm.test('Has deletionScheduledAt', () => pm.expect(pm.response.json().data.deletionScheduledAt).to.be.a('string'));"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "Status scheduled",
+              "originalRequest": {
+                "method": "GET",
+                "url": "{{baseUrl}}/auth/delete-account/status"
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Account deletion status retrieved successfully\",\n  \"data\": {\n    \"scheduled\": true,\n    \"deletionScheduledAt\": \"2026-11-24T16:00:00.000Z\"\n  },\n  \"timestamp\": \"2026-10-25T16:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Status (not scheduled)",
+          "request": {
+            "method": "GET",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{firebaseIdToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/auth/delete-account/status",
+            "description": "Returns scheduled: false when account is active."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Scheduled is false', () => pm.expect(pm.response.json().data.scheduled).to.eql(false));",
+                  "pm.test('deletionScheduledAt is null', () => pm.expect(pm.response.json().data.deletionScheduledAt).to.eql(null));"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "Status not scheduled",
+              "originalRequest": {
+                "method": "GET",
+                "url": "{{baseUrl}}/auth/delete-account/status"
+              },
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Account deletion status retrieved successfully\",\n  \"data\": {\n    \"scheduled\": false,\n    \"deletionScheduledAt\": null\n  },\n  \"timestamp\": \"2026-10-25T16:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Status (unauthenticated)",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/auth/delete-account/status",
+            "description": "Fails with 401 when missing bearer token."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "Missing bearer token",
+              "originalRequest": {
+                "method": "GET",
+                "url": "{{baseUrl}}/auth/delete-account/status"
+              },
+              "status": "Unauthorized",
+              "code": 401,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": false,\n  \"message\": \"Missing bearer token\",\n  \"statusCode\": 401,\n  \"timestamp\": \"2026-10-25T16:00:00.000Z\"\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
