@@ -16,6 +16,10 @@ import type { MessageKind } from './sos.types';
 export class SosDeliveryWorker implements OnModuleInit, OnModuleDestroy {
   private timer?: ReturnType<typeof setInterval>;
   private running = false;
+  private tickStartedAt = 0;
+  private lastStallWarningAt = 0;
+  private stage: 'idle' | 'query' | 'finalize' = 'idle';
+  private reportedQueryReady = false;
   private inFlight = 0;
   private readonly logger = new Logger(SosDeliveryWorker.name);
   constructor(
@@ -26,6 +30,7 @@ export class SosDeliveryWorker implements OnModuleInit, OnModuleDestroy {
 
   onModuleInit() {
     // Status-only capability intentionally does not depend on SOS_ENABLED.
+    this.logger.log('SOS delivery worker started');
     this.timer = setInterval(() => void this.tick(), 1000);
     this.timer.unref();
     void this.tick();
@@ -78,13 +83,31 @@ export class SosDeliveryWorker implements OnModuleInit, OnModuleDestroy {
   }
 
   async tick(): Promise<void> {
-    if (this.running) return;
+    if (this.running) {
+      const now = Date.now();
+      if (now - this.tickStartedAt >= 60000 && now - this.lastStallWarningAt >= 60000) {
+        this.lastStallWarningAt = now;
+        this.logger.warn({
+          message: 'SOS delivery scheduling is still waiting',
+          stage: this.stage,
+          elapsedMs: now - this.tickStartedAt,
+        });
+      }
+      return;
+    }
     this.running = true;
+    this.tickStartedAt = Date.now();
     try {
+      this.stage = 'query';
       const records = await this.repository.listDeliveryDue(Date.now());
+      if (!this.reportedQueryReady) {
+        this.reportedQueryReady = true;
+        this.logger.log({ message: 'SOS delivery query ready', dueCount: records.length });
+      }
       const jobs: Promise<void>[] = [];
       for (const record of records) {
         // Expiry/finalization still runs when both HTTP slots are occupied.
+        this.stage = 'finalize';
         await this.repository.mutateTracking(record.sosId, (saved) => {
           finishRefresh(saved, Date.now());
           for (const r of saved.recipients)
@@ -115,7 +138,9 @@ export class SosDeliveryWorker implements OnModuleInit, OnModuleDestroy {
               continue;
             this.inFlight++;
             jobs.push(
-              this.check(record.sosId, r.contactId, kind).finally(() => {
+              this.check(record.sosId, r.contactId, kind).catch((error: unknown) => {
+                this.logger.warn({ message: 'SOS delivery check failed', code: safeErrorCode(error) });
+              }).finally(() => {
                 this.inFlight--;
               }),
             );
@@ -123,9 +148,10 @@ export class SosDeliveryWorker implements OnModuleInit, OnModuleDestroy {
       }
       // Keep scheduling while requests run, so a hanging request cannot hold up job expiry.
       void Promise.allSettled(jobs);
-    } catch {
-      this.logger.warn('SOS delivery scheduling failed');
+    } catch (error: unknown) {
+      this.logger.warn({ message: 'SOS delivery scheduling failed', stage: this.stage, code: safeErrorCode(error) });
     } finally {
+      this.stage = 'idle';
       this.running = false;
     }
   }
@@ -188,4 +214,12 @@ export class SosDeliveryWorker implements OnModuleInit, OnModuleDestroy {
       }
     });
   }
+}
+
+// Do not log raw SDK errors: they can contain credentials, URLs, or message data.
+function safeErrorCode(error: unknown): string | number {
+  const code = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+  if (typeof code === 'number' && Number.isFinite(code)) return code;
+  if (typeof code === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(code)) return code;
+  return 'unknown';
 }
