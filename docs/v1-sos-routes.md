@@ -156,3 +156,17 @@ To run outside that test harness, use an equivalent isolated backend and supply
 `baseUrl`, `sosTestMode`, `firebaseIdToken`, `foreignToken`, `noContactsToken`,
 `alertId`, `unlinkedAlertId`, and `foreignAlertId` through local variables.
 The owned unlinked alert must have no associated SOS. Tokens stay out of Git.
+
+## Delivery worker diagnostics
+
+When an accepted message stays Submitted, compare its saved delivery evidence
+with the provider's per-message result. Successful GET or refresh-status requests
+do not establish that the worker actually checked delivery.
+
+The worker logs `SOS delivery worker started` at application initialization and
+`SOS delivery query ready` after its first successful queue query. A scheduling
+operation taking over a minute produces a warning with its `query` or `finalize`
+stage, at most once a minute, without starting overlapping work. Scheduling and
+check failures log a sanitized error code, never raw SDK errors, SMS content,
+phone numbers, or provider credentials. These diagnostics do not resend messages
+or change the five-minute tracking window.
