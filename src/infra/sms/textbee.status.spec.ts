@@ -37,6 +37,23 @@ describe('TextBeeAdapter.getStatus', () => {
     jest.restoreAllMocks();
   });
 
+  it.each(['unknown', 'delivery_failed'])('treats %s as recognized uncertainty even with a completed batch', async status => {
+    global.fetch = jest.fn().mockResolvedValue(jsonResponse(200, statusBody(status, {}, 'completed')));
+    expect(await new TextBeeAdapter(fakeConfig()).getStatus('batch')).toEqual({ state: 'unknown', reason: 'provider_unknown' });
+  });
+  it('uses the saved sending device instead of the current default', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(jsonResponse(200, statusBody('sent'))); global.fetch = fetchMock;
+    await new TextBeeAdapter(fakeConfig({ TEXTBEE_DEVICE_ID: 'new-device' })).getStatus('batch', 'old-device');
+    expect(fetchMock.mock.calls[0][0]).toContain('/old-device/sms-batch/batch');
+  });
+  it('honors numeric and HTTP-date Retry-After, with a 60s fallback', async () => {
+    jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-25T00:00:00Z'));
+    for (const [header, delay] of [['12', 12000], ['Sun, 25 Oct 2026 00:00:45 GMT', 45000], ['invalid', 60000]] as const) {
+      global.fetch = jest.fn().mockResolvedValue(new Response('{}', { status: 429, headers: { 'Retry-After': header } }));
+      expect(await new TextBeeAdapter(fakeConfig()).getStatus('batch')).toEqual({ state: 'unknown', reason: 'rate_limited', retryAfterMs: delay });
+    }
+  });
+
   it('calls the documented per-device batch route with the api key', async () => {
     const fetchMock = jest.fn().mockResolvedValue(jsonResponse(200, statusBody('delivered')));
     global.fetch = fetchMock;
