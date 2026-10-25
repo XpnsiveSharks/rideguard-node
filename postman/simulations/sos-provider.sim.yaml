@@ -1,0 +1,5 @@
+simulation: sos-provider
+routing: path
+mocks:
+  - routeKey: textbee
+    path: ../mocks/textbee-status/config.yaml

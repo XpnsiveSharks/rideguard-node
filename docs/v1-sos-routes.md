@@ -2,8 +2,8 @@
 
 All routes use `/v1`, Firebase Bearer authentication, and the standard
 `{ success, message, data, timestamp }` success envelope. User identity comes
-from authentication. SOS activation and SMS processing are disabled by default
-with `SOS_ENABLED=false`; this work does not enable them.
+from authentication. SOS activation and dispatch recovery are disabled by default
+with `SOS_ENABLED=false`. Saved status reads and delivery lookups remain available.
 
 | Method and path | Result |
 | --- | --- |
@@ -12,6 +12,7 @@ with `SOS_ENABLED=false`; this work does not enable them.
 | `GET /sos/by-request/:requestId` | SOS associated with this user's UUID request ID, including ended records; 404 when absent |
 | `GET /sos/:sosId` | Owned SOS, including ended records; 404 for absent or foreign IDs |
 | `POST /sos/:sosId/stop` | 200 with an ended SOS; repeatable without duplicate end updates |
+| `POST /sos/:sosId/refresh-status` | Empty `{}` body; 202 for scheduled/pending status-only work, 200 for cooldown/no work; never sends SMS |
 | `GET /alerts/:alertId/sos` | Latest linked SOS owned by this user, including ended records, or `data: null`; validates alert ownership first |
 
 ## Activation and alert ownership
@@ -52,6 +53,73 @@ Errors include 400 for invalid input, 401 for missing/invalid authentication,
 404 for absent/foreign resources, 409 for conflicting request reuse, 422 with
 `SOS_NO_CONTACTS` for no usable contacts, and 503 with `SOS_DISABLED` when
 new activation is disabled. Reads and replay remain available when disabled.
+
+## Message delivery contract
+
+Both `initial` and non-null `ended` summaries retain the original submission enum
+and include `delivery: null` or a separate delivery summary. Accepted submissions
+stay accepted after delivery failure. Historical `failed` + `delivery_failed`
+remains a failure. `ended` stays null until an end update exists. There is no history
+rewrite or automatic tracking of legacy records. Original provider/device evidence
+is required; legacy IDs alone never cause lookups against today's default device.
+
+`delivery` contains `status` (pending/sent/delivered/failed/unknown), `observedAt`,
+immutable `acceptedAt` and `expiresAt`, `tracking` (active/complete/timed_out/unavailable),
+`lastAttemptAt`, `lastCheckedAt`, `lastCheckError`, and `failureCode`.
+All times are Node ISO UTC. `observedAt` is Node's first observation of that state,
+not the carrier event time. Attempt time advances before HTTP; successful check time
+advances only for recognized results. Errors never erase confirmed progress.
+Null delivery means no honest tracking evidence, not success or failure.
+
+Pending means confirmation is awaited; sent means carrier acceptance; only delivered
+means a receipt was confirmed. Completed batches do not prove delivery. Per-message
+results take precedence. TextBee's rare `delivery_failed` is uncertain; it does not
+mean the same thing as the historical application error code. Terminal delivery
+results cannot be overwritten by a later lower-progress response. Known sent
+survives unknown results, timeouts and malformed responses.
+
+New acceptances track independently for five minutes, including end updates after
+SOS ends. Checks are due immediately, then at 5s for the first 60s, then 15s.
+Intervals start at the previous attempt start, with no missed-tick replay.
+Consecutive transport failures back off 10/20/40/60s; recognized results reset this.
+429 respects Retry-After (seconds or date), defaulting to 60s, with a persisted
+TextBee account cooldown shared by workers. Authentication/configuration/missing
+resource errors stop automatic tracking as unavailable. Timeouts are not failures.
+No new automatic HTTP request starts at/after expiry; a valid in-flight result can
+still be saved. Delivery failure excludes newly created end-update recipients.
+
+Every public SOS includes `statusRefresh`, defaulting to idle with null timestamps.
+Manual jobs coalesce in Firestore, have a 30s per-SOS cooldown and a 60s lifetime.
+Each eligible nonterminal tracked message gets at most one new lookup. A successful
+automatic check less than 5s old, or an in-flight check, can satisfy it. Complete
+means every lookup returned a recognized result; partial/unavailable reflect lookup
+coverage, not SMS delivery. Late manual checks never extend the automatic deadline.
+No-work/cooldown responses do not invent a check time. Unknown provider results
+remain uncertain even when the lookup job completes. Body fields are rejected
+with 400; authentication is 401; absent/foreign IDs are the same 404.
+
+Provider IDs, saved sending device, due times, failures, revision and lease stay
+backend-only. Leases last at least 30s and exceed the configured HTTP timeout by
+10s; revisions fence reclaimed work. Firestore transactions contain no provider
+calls. A singleton worker allows at most two concurrent status calls per process.
+It runs independently of the activation flag and mobile visibility.
+
+Scheduling queries use the single ascending collection index `sos.deliveryDueAt`,
+explicitly included in `firestore.indexes.json`; no new composite index is needed.
+Records without new delivery evidence are not added to that queue. The existing
+submission recovery scan is unchanged. Prepare the index before backend rollout,
+then release mobile. Do not run a migration that fabricates old acceptance times.
+The shared `sos_delivery_control/textbee` record assumes this deployment uses one
+TextBee account. Keep that collection backend-only, like the existing SOS stores.
+
+Old mobile clients continue parsing submission fields but show neither confirmed
+delivery nor all later delivery failures. New mobile supports missing delivery/job
+fields; a refresh route 404 falls back once to the owned GET. Only a successful GET
+allows it to call enhanced refresh unavailable. No status action invokes dispatch.
+
+Provider mapping was checked against the [delivery documentation](https://textbee.dev/docs/sending-sms/delivery-status)
+and [API reference](https://textbee.dev/docs/api-reference) on 2026-10-25. Local
+simulations do not establish carrier delivery or current production behavior.
 
 ## Local Postman collection
 

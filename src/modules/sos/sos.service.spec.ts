@@ -9,6 +9,8 @@ import type { AlertsService } from '../alerts/alerts.service';
 import type { EmergencyContactRecord } from '../profile/infrastructure/contact.repository';
 import type { SosRepository, StartOutcome } from './infrastructure/sos.repository';
 import { SosService } from './sos.service';
+import { SosDeliveryWorker } from './sos-delivery.worker';
+import { updateDeliveryDue } from './sos-delivery';
 import type { StartSosDto } from './sos.dto';
 import type { PublicSos, SosRecord } from './sos.types';
 import { Test } from '@nestjs/testing';
@@ -31,6 +33,7 @@ const REQUEST_ID = '3f2b8c1e-5d4a-4e6f-9a7b-1c2d3e4f5a6b';
 
 // In-memory stand-in for the Firestore repository with the same contract.
 class FakeSosRepository {
+  cooldown = { until: 0 };
   records = new Map<string, SosRecord>();
   requests = new Map<string, { sosId: string; fingerprint: string }>();
   active = new Map<string, string>();
@@ -102,7 +105,17 @@ class FakeSosRepository {
 
   mutate<T>(sosId: string, change: (record: SosRecord) => T) {
     const record = this.records.get(sosId);
-    return Promise.resolve(record ? change(record) : null);
+    if (!record) return Promise.resolve(null);
+    const result = change(record); updateDeliveryDue(record); return Promise.resolve(result);
+  }
+
+  async mutateTracking<T>(id: string, change: (record: SosRecord, cooldown: { until: number }) => T) {
+    const record = this.records.get(id);
+    if (!record) return null;
+    const result = change(record, this.cooldown); updateDeliveryDue(record); return result;
+  }
+  listDeliveryDue(now: number) {
+    return Promise.resolve([...this.records.values()].filter(r => r.deliveryDueAt != null && r.deliveryDueAt <= now));
   }
 
   mutateAndRelease<T>(uid: string, sosId: string, change: (record: SosRecord) => T) {
@@ -125,6 +138,7 @@ const contact = (id: string, phone: string, name = `Contact ${id}`): EmergencyCo
 });
 
 type Harness = {
+  worker: SosDeliveryWorker;
   service: SosService;
   repo: FakeSosRepository;
   sent: SmsSendInput[];
@@ -148,7 +162,7 @@ function build(
     sent.push(input);
     return options.send
       ? options.send(input)
-      : Promise.resolve<SmsSendResult>({ outcome: 'accepted', providerMessageId: 'batch-1' });
+      : Promise.resolve<SmsSendResult>({ outcome: 'accepted', providerMessageId: 'batch-1', deviceId: 'original-device' });
   });
   const track = jest.fn<Promise<SmsDeliveryStatus>, [string]>(() =>
     Promise.resolve<SmsDeliveryStatus>(options.track ?? { state: 'sent' }),
@@ -177,15 +191,17 @@ function build(
     return Promise.resolve({});
   });
 
+  const tracker = { track, check: track } as unknown as SmsDeliveryTracker;
+  const worker = new SosDeliveryWorker(repo as unknown as SosRepository, tracker, config);
   const service = new SosService(
     repo as unknown as SosRepository,
     profileService,
     { send },
-    { track } as unknown as SmsDeliveryTracker,
     config,
     { getOwned: getAlert } as unknown as AlertsService,
+    worker,
   );
-  return { service, repo, sent, send, track, getAlert };
+  return { service, repo, sent, send, track, getAlert, worker };
 }
 
 const flush = async (): Promise<void> => {
@@ -204,6 +220,190 @@ describe('SosService', () => {
     }
   });
   afterEach(() => jest.restoreAllMocks());
+
+  describe('persisted status-only delivery work', () => {
+    let time: number;
+    beforeEach(() => { time = new Date().getTime(); jest.spyOn(Date, 'now').mockImplementation(() => time); });
+    const started = async () => {
+      const h = build({ contacts: [contact('a', '+639111111111')] });
+      const { sos } = await h.service.start(UID, dto()); await flush();
+      // new Date() is not replaced by the Date.now spy; anchor scheduling to acceptance.
+      time = Date.parse(h.repo.records.get(sos.sosId)!.recipients[0].initial.delivery!.acceptedAt);
+      return { ...h, id: sos.sosId, r: h.repo.records.get(sos.sosId)!.recipients[0] };
+    };
+
+    it('persists pending, sent and delivered without repeating the original send; GETs are saved reads', async () => {
+      const h = await started();
+      expect(h.r.initial.delivery).toMatchObject({ status: 'pending', observedAt: null });
+      await h.worker.check(h.id, 'a', 'initial');
+      expect((await h.service.getOwned(UID, h.id)).recipients[0].initial.delivery?.status).toBe('sent');
+      time += 5000; h.track.mockResolvedValue({ state: 'delivered' });
+      await h.worker.check(h.id, 'a', 'initial');
+      await h.worker.check(h.id, 'a', 'initial');
+      expect(h.r.initial.delivery).toMatchObject({ status: 'delivered', tracking: 'complete' });
+      expect(h.track).toHaveBeenCalledTimes(2); expect(h.send).toHaveBeenCalledTimes(1);
+      const publicJson = JSON.stringify(await h.service.getOwned(UID, h.id));
+      for (const secret of ['original-device', 'batch-1', 'leaseUntil', 'deliveryDueAt', 'refreshTargets']) expect(publicJson).not.toContain(secret);
+    });
+
+    it('preserves sent evidence and provider check time through errors, unknown and rare uncertain results', async () => {
+      const h = await started(); await h.worker.check(h.id, 'a', 'initial');
+      const checked = h.r.initial.delivery!.lastCheckedAt;
+      time += 5000; h.track.mockResolvedValue({ state: 'unknown', reason: 'timeout' });
+      await h.worker.check(h.id, 'a', 'initial');
+      expect(h.r.initial.delivery).toMatchObject({ status: 'sent', lastCheckedAt: checked, lastCheckError: 'timeout' });
+      time += 10000; h.track.mockResolvedValue({ state: 'unknown', reason: 'provider_unknown' });
+      await h.worker.check(h.id, 'a', 'initial');
+      expect(h.r.initial.delivery).toMatchObject({ status: 'sent', lastCheckError: 'provider_unknown' });
+      expect(h.r.initial.delivery!.lastCheckedAt).not.toBe(checked); expect(h.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('changes cadence at 60 seconds, skips missed ticks and starts nothing at the five-minute boundary', async () => {
+      const h = await started(); const start = time;
+      await h.worker.check(h.id, 'a', 'initial'); expect(h.r.initialWork!.dueAt).toBe(start + 5000);
+      time = start + 60000; await h.worker.check(h.id, 'a', 'initial'); expect(h.r.initialWork!.dueAt).toBe(time + 15000);
+      time = start + 300000; await h.worker.tick(); await flush();
+      expect(h.r.initial.delivery!.tracking).toBe('timed_out'); expect(h.track).toHaveBeenCalledTimes(2);
+      expect(h.r.initial.delivery!.expiresAt).toBe(new Date(start + 300000).toISOString());
+    });
+
+    it('backs off consecutive failures 10/20/40/60 seconds and resets on a recognized result', async () => {
+      const h = await started(); h.track.mockResolvedValue({ state: 'unknown', reason: 'network_error' });
+      for (const gap of [10000, 20000, 40000, 60000]) {
+        await h.worker.check(h.id, 'a', 'initial'); expect(h.r.initialWork!.dueAt - time).toBe(gap); time += gap;
+      }
+      h.track.mockResolvedValue({ state: 'sent' }); await h.worker.check(h.id, 'a', 'initial');
+      expect(h.r.initialWork!.failures).toBe(0); expect(h.r.initialWork!.dueAt - time).toBe(15000);
+    });
+
+    it('coalesces rapid manual requests and obeys the 29/30-second boundary with zero sends', async () => {
+      const h = await started(); const start = time;
+      const first = await h.service.refreshStatus(UID, h.id);
+      await h.service.refreshStatus(UID, h.id); expect(h.repo.records.get(h.id)!.statusRefresh).toEqual(first.sos.statusRefresh);
+      await h.worker.check(h.id, 'a', 'initial'); expect(h.repo.records.get(h.id)!.statusRefresh!.state).toBe('complete');
+      time = start + 29000; expect((await h.service.refreshStatus(UID, h.id)).scheduled).toBe(false);
+      time = start + 30000; expect((await h.service.refreshStatus(UID, h.id)).scheduled).toBe(true);
+      expect(h.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('reuses a fresh automatic check and an in-flight check for manual refresh', async () => {
+      const h = await started(); await h.worker.check(h.id, 'a', 'initial');
+      await h.worker.request(UID, h.id); await h.worker.tick(); await flush();
+      expect(h.track).toHaveBeenCalledTimes(1); expect(h.repo.records.get(h.id)!.statusRefresh!.state).toBe('complete');
+      time += 30000;
+      let resolve!: (s: SmsDeliveryStatus) => void;
+      h.track.mockImplementation(() => new Promise(r => { resolve = r; }));
+      const pending = h.worker.check(h.id, 'a', 'initial'); await flush();
+      await h.worker.request(UID, h.id); await h.worker.check(h.id, 'a', 'initial');
+      resolve({ state: 'sent' }); await pending;
+      expect(h.track).toHaveBeenCalledTimes(2); expect(h.repo.records.get(h.id)!.statusRefresh!.state).toBe('complete');
+    });
+
+    it('manually checks after timeout without extending acceptance/deadline and supports ended SOS', async () => {
+      const h = await started(); const deadline = h.r.initial.delivery!.expiresAt;
+      await h.service.stop(UID, h.id); await flush(); const sends = h.send.mock.calls.length;
+      time += 300001; await h.worker.tick(); await flush();
+      expect(h.r.initial.delivery!.tracking).toBe('timed_out');
+      h.track.mockResolvedValue({ state: 'delivered' }); await h.worker.request(UID, h.id);
+      await h.worker.check(h.id, 'a', 'initial');
+      expect(h.r.initial.delivery).toMatchObject({ status: 'delivered', tracking: 'complete', expiresAt: deadline });
+      expect(h.send).toHaveBeenCalledTimes(sends);
+    });
+
+    it('expires manual jobs at 60s while preserving a valid late result', async () => {
+      const h = await started(); let resolve!: (s: SmsDeliveryStatus) => void;
+      h.track.mockImplementation(() => new Promise(r => { resolve = r; }));
+      await h.worker.request(UID, h.id); const pending = h.worker.check(h.id, 'a', 'initial'); await flush();
+      h.r.initialWork!.leaseUntil = time + 120000;
+      time += 60000; await h.worker.tick(); await flush();
+      expect(h.repo.records.get(h.id)!.statusRefresh!.state).toBe('unavailable');
+      resolve({ state: 'delivered' }); await pending;
+      expect(h.r.initial.delivery!.status).toBe('delivered'); expect(h.repo.records.get(h.id)!.statusRefresh!.state).toBe('unavailable');
+    });
+
+    it('shares rate-limit cooldown across messages and workers', async () => {
+      const h = await started();
+      await h.service.stop(UID, h.id); await flush();
+      h.track.mockResolvedValueOnce({ state: 'unknown', reason: 'rate_limited', retryAfterMs: 45000 });
+      await h.worker.check(h.id, 'a', 'initial');
+      const other = new SosDeliveryWorker(h.repo as unknown as SosRepository, { check: h.track } as unknown as SmsDeliveryTracker,
+        { get: () => 10000 } as unknown as ConfigService<EnvironmentVariables, true>);
+      time += 44999; await other.check(h.id, 'a', 'ended'); expect(h.track).toHaveBeenCalledTimes(1);
+      time++; await other.check(h.id, 'a', 'ended'); expect(h.track).toHaveBeenCalledTimes(2);
+    });
+
+    it('recovers leased work only after expiry and fences an older claimant', async () => {
+      const h = await started(); let resolve!: (s: SmsDeliveryStatus) => void;
+      h.track.mockImplementationOnce(() => new Promise(r => { resolve = r; }));
+      const old = h.worker.check(h.id, 'a', 'initial'); await flush();
+      const lease = h.r.initialWork!.leaseUntil;
+      const restarted = new SosDeliveryWorker(h.repo as unknown as SosRepository, { check: h.track } as unknown as SmsDeliveryTracker,
+        { get: () => 10000 } as unknown as ConfigService<EnvironmentVariables, true>);
+      time = lease - 1; await restarted.check(h.id, 'a', 'initial'); expect(h.track).toHaveBeenCalledTimes(1);
+      time++; h.track.mockResolvedValue({ state: 'delivered' }); await restarted.check(h.id, 'a', 'initial');
+      resolve({ state: 'pending' }); await old;
+      expect(h.r.initial.delivery!.status).toBe('delivered'); expect(h.send).toHaveBeenCalledTimes(1);
+      expect(h.track).toHaveBeenLastCalledWith('batch-1', 'original-device');
+    });
+
+    it('never creates end updates for a confirmed failed delivery, including recovery', async () => {
+      const h = await started(); h.track.mockResolvedValue({ state: 'failed' }); await h.worker.check(h.id, 'a', 'initial');
+      await h.service.stop(UID, h.id); await h.service.recover(); await flush();
+      expect(h.r.ended).toBeNull(); expect(h.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects foreign refresh and skips terminal/missing tracking IDs without lookups', async () => {
+      const h = await started();
+      await expect(h.worker.request('foreign', h.id)).rejects.toBeInstanceOf(NotFoundException);
+      h.track.mockResolvedValue({ state: 'delivered' }); await h.worker.check(h.id, 'a', 'initial');
+      expect((await h.worker.request(UID, h.id)).scheduled).toBe(false);
+      expect(h.track).toHaveBeenCalledTimes(1); expect(h.send).toHaveBeenCalledTimes(1);
+      delete h.r.initialWork; delete h.r.initial.delivery;
+      expect((await h.service.getOwned(UID, h.id)).recipients[0].initial.delivery).toBeNull();
+      expect((await h.worker.request(UID, h.id)).scheduled).toBe(false);
+    });
+
+    it('limits a process to two in-flight checks and finishes a mixed refresh as partial', async () => {
+      const h = build({ contacts: [contact('a', '+639111111111'), contact('b', '+639222222222'), contact('c', '+639333333333')] });
+      const { sos } = await h.service.start(UID, dto()); await flush();
+      time = Date.parse(h.repo.records.get(sos.sosId)!.recipients[0].initial.delivery!.acceptedAt);
+      const resolves: ((s: SmsDeliveryStatus) => void)[] = [];
+      h.track.mockImplementation(() => new Promise(r => { resolves.push(r); }));
+      await h.worker.request(UID, sos.sosId); await h.worker.tick(); await flush();
+      expect(resolves).toHaveLength(2); await h.worker.tick(); expect(h.track).toHaveBeenCalledTimes(2);
+      resolves[0]({ state: 'delivered' }); resolves[1]({ state: 'unknown', reason: 'timeout' }); await flush();
+      await h.worker.tick(); await flush(); expect(resolves).toHaveLength(3);
+      resolves[2]({ state: 'sent' }); await flush();
+      expect(h.repo.records.get(sos.sosId)!.statusRefresh!.state).toBe('partial'); expect(h.send).toHaveBeenCalledTimes(3);
+    });
+
+    it('stores independent initial/end provider IDs and recovers after permanent lookup failure', async () => {
+      let n = 0;
+      const h = build({ contacts: [contact('a', '+639111111111')], send: async () => ({ outcome: 'accepted', providerMessageId: `batch-${++n}`, deviceId: 'saved-device' }) });
+      const { sos } = await h.service.start(UID, dto()); await flush();
+      time = Date.parse(h.repo.records.get(sos.sosId)!.recipients[0].initial.delivery!.acceptedAt);
+      h.track.mockResolvedValue({ state: 'unknown', reason: 'authentication_failed' }); await h.worker.check(sos.sosId, 'a', 'initial');
+      expect(h.repo.records.get(sos.sosId)!.recipients[0].initial.delivery!.tracking).toBe('unavailable');
+      await h.service.stop(UID, sos.sosId); await flush();
+      h.track.mockResolvedValue({ state: 'delivered' }); await h.worker.request(UID, sos.sosId);
+      await h.worker.check(sos.sosId, 'a', 'initial');
+      await h.worker.check(sos.sosId, 'a', 'ended');
+      expect(h.track.mock.calls.map(c => c[0])).toEqual(['batch-1', 'batch-1', 'batch-2']);
+      expect(h.send).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps status reads and rechecks operational when activation is disabled', async () => {
+      const h = await started();
+      const disabled = build({ enabled: false });
+      disabled.repo.records.set(h.id, h.repo.records.get(h.id)!);
+      await disabled.service.getOwned(UID, h.id);
+      await disabled.service.refreshStatus(UID, h.id);
+      await disabled.worker.check(h.id, 'a', 'initial');
+      await disabled.service.recover();
+      expect(disabled.track).toHaveBeenCalledTimes(1);
+      expect(disabled.send).not.toHaveBeenCalled(); expect(h.send).toHaveBeenCalledTimes(1);
+    });
+  });
 
   describe('request lookup and alert linking', () => {
     it('looks up a request after stop, masks recipients, and never sends again', async () => {
@@ -346,6 +546,23 @@ describe('SosService', () => {
 
     afterEach(async () => {
       await app.close();
+    });
+
+    it('validates the status-only POST, persists 202 jobs, coalesces, and isolates owners', async () => {
+      const server = app.getHttpServer();
+      const { sos } = await harness.service.start(UID, dto()); await flush();
+      const path = `/v1/sos/${sos.sosId}/refresh-status`;
+      await request(server).post(path).send({}).expect(401);
+      await request(server).post(path).auth('local-foreign', { type: 'bearer' }).send({}).expect(404);
+      await request(server).post(path).auth('local-user', { type: 'bearer' }).send({ resend: true }).expect(400);
+      for (let i = 0; i < 2; i++) await request(server).post(path).auth('local-user', { type: 'bearer' }).send({}).expect(202)
+        .expect(({ body }) => expect(body).toMatchObject({ success: true, data: { statusRefresh: { state: 'pending' } } }));
+      expect(harness.repo.records.get(sos.sosId)!.statusRefresh!.state).toBe('pending');
+      expect(harness.track).not.toHaveBeenCalled(); expect(harness.send).toHaveBeenCalledTimes(2);
+      harness.track.mockResolvedValue({ state: 'delivered' });
+      for (const r of sos.recipients) await harness.worker.check(sos.sosId, r.contactId, 'initial');
+      await request(server).post(path).auth('local-user', { type: 'bearer' }).send({}).expect(200);
+      expect(harness.send).toHaveBeenCalledTimes(2);
     });
 
     it('routes authenticated request and alert lookups, including ended SOS records', async () => {
@@ -559,17 +776,17 @@ describe('SosService', () => {
     });
 
     it('resumes a fresh queued initial job once across competing recovery passes', async () => {
-      const { service, repo, send } = build();
+      const { service, repo, send, worker } = build();
       const record = seed(repo, { age: 1000 });
       const other = new SosService(
         repo as unknown as SosRepository,
         {} as ProfileService,
         { send },
-        { track: jest.fn() } as unknown as SmsDeliveryTracker,
         {
           get: (key: string) => (key === 'SOS_ENABLED' ? true : 10000),
         } as unknown as ConfigService<EnvironmentVariables, true>,
         {} as AlertsService,
+        worker,
       );
       await Promise.all([service.recover(), other.recover()]);
       await service.recover();
@@ -880,16 +1097,17 @@ describe('SosService', () => {
       expect(send).toHaveBeenCalledTimes(2);
     });
 
-    it('downgrades accepted to failed when the provider confirms failure', async () => {
-      const { service } = build({ track: { state: 'failed', errorCode: '4' } });
+    it('preserves accepted submission when the provider confirms delivery failure', async () => {
+      const { service, worker } = build({ track: { state: 'failed', errorCode: '4' } });
 
       const { sos } = await service.start(UID, dto());
       await flush();
+      await worker.check(sos.sosId, 'a', 'initial');
       const after = await service.getOwned(UID, sos.sosId);
 
       expect(after.recipients[0].initial).toMatchObject({
-        status: 'failed',
-        errorCode: 'delivery_failed',
+        status: 'accepted',
+        delivery: { status: 'failed', failureCode: '4', tracking: 'complete' },
       });
     });
 

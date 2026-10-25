@@ -1,5 +1,6 @@
 import {
   Body,
+  BadRequestException,
   Controller,
   Get,
   HttpCode,
@@ -65,7 +66,18 @@ export class SosController {
   }
 
   // USER ROUTE
-  // route: POST /sos/:sosId/stop  (idempotent)
+  // route: POST /sos/:sosId/refresh-status (status only)
+  @Post(':sosId/refresh-status')
+  async refreshStatus(@Req() req: Request, @Param('sosId') sosId: string,
+    @Body() body: unknown, @Res({ passthrough: true }) res: Response): Promise<PublicSos> {
+    const uid = requireUid(req);
+    if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).length)
+      throw new BadRequestException('Body must be an empty object');
+    const result = await this.sosService.refreshStatus(uid, sosId);
+    res.status(result.scheduled ? HttpStatus.ACCEPTED : HttpStatus.OK);
+    return result.sos;
+  }
+
   @Post(':sosId/stop')
   @HttpCode(HttpStatus.OK)
   stop(@Req() req: Request, @Param('sosId') sosId: string): Promise<PublicSos> {

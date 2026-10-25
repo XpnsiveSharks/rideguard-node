@@ -18,5 +18,5 @@ export const SOS_SEND_GRACE_MS = 30 * 1000;
 export const SOS_TIME_ZONE = 'Asia/Manila';
 export const SOS_MAX_NAME_LENGTH = 30;
 
-// Seconds-scale budget for the post-accept delivery check.
-export const SOS_DELIVERY_TRACK_TIMEOUT_MS = 60 * 1000;
+// Immutable automatic delivery window, measured from durable acceptance.
+export const SOS_DELIVERY_TRACK_TIMEOUT_MS = 300 * 1000;
