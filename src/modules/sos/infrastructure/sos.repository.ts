@@ -3,6 +3,7 @@ import { FieldPath, Firestore } from 'firebase-admin/firestore';
 import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
 import { SOS_ACTIVE_COLLECTION, SOS_COLLECTION, SOS_REQUESTS_COLLECTION } from '../sos.constants';
 import type { SosRecord } from '../sos.types';
+import { updateDeliveryDue } from '../sos-delivery';
 
 type RequestMapping = { sosId: string; fingerprint: string };
 
@@ -115,6 +116,30 @@ export class SosRepository {
     return this.firestore.collection(SOS_COLLECTION).doc().id;
   }
 
+  async listDeliveryDue(now: number): Promise<SosRecord[]> {
+    const page = await this.firestore.collection(SOS_COLLECTION)
+      .where('deliveryDueAt', '<=', now).orderBy('deliveryDueAt').limit(50).get();
+    return page.docs.map(doc => doc.data() as SosRecord);
+  }
+
+  // Account cooldown and message claim are read together before any writes.
+  async mutateTracking<T>(sosId: string, change: (record: SosRecord, cooldown: { until: number }) => T): Promise<T | null> {
+    const ref = this.firestore.collection(SOS_COLLECTION).doc(sosId);
+    const cooldownRef = this.firestore.collection('sos_delivery_control').doc('textbee');
+    return this.firestore.runTransaction(async transaction => {
+      const [snapshot, control] = await Promise.all([transaction.get(ref), transaction.get(cooldownRef)]);
+      if (!snapshot.exists) return null;
+      const record = snapshot.data() as SosRecord;
+      const cooldown = { until: Number(control.data()?.until ?? 0) };
+      const previous = cooldown.until;
+      const result = change(record, cooldown);
+      updateDeliveryDue(record);
+      transaction.set(ref, record);
+      if (previous !== cooldown.until) transaction.set(cooldownRef, cooldown);
+      return result;
+    });
+  }
+
   // Document-ID paging needs no new index and includes ended SOS records.
   async listPage(afterId?: string): Promise<SosRecord[]> {
     let query = this.firestore
@@ -136,6 +161,7 @@ export class SosRepository {
       if (!snapshot.exists) return null;
       const record = snapshot.data() as SosRecord;
       const result = change(record);
+      updateDeliveryDue(record);
       transaction.set(ref, record);
       return result;
     });
@@ -158,6 +184,7 @@ export class SosRepository {
       if (!snapshot.exists) return null;
       const record = snapshot.data() as SosRecord;
       const result = change(record);
+      updateDeliveryDue(record);
       transaction.set(ref, record);
       if (activeDoc.exists && (activeDoc.data() as { sosId: string }).sosId === sosId) {
         transaction.delete(activeRef);

@@ -1,0 +1,6 @@
+version: 1
+name: textbee-status
+interceptRequests: true
+scenarios:
+  - name: default
+    path: default.js

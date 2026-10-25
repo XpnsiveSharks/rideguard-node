@@ -101,12 +101,13 @@ export class TextBeeAdapter implements SmsSender, SmsStatusChecker {
         signal: controller.signal,
       });
 
-      return await this.toResult(response);
+      const result = await this.toResult(response);
+      return result.outcome === 'accepted' && deviceId ? { ...result, deviceId } : result;
     } catch (error) {
       // The request may have reached TextBee before the connection was lost
       // or the timeout fired - a queued send cannot be ruled out. Report
       // 'unknown' rather than a false rejection.
-      const isTimeout = error instanceof Error && error.name === 'AbortError';
+      const isTimeout = controller.signal.aborted || (error instanceof Error && error.name === 'AbortError');
       this.logger.warn(
         isTimeout
           ? 'SMS send outcome unknown: request timed out after submission'
@@ -120,9 +121,9 @@ export class TextBeeAdapter implements SmsSender, SmsStatusChecker {
 
   // Looks up one accepted send by its smsBatchId. Never throws: any failure
   // to learn the state is 'unknown', which says nothing about the message.
-  async getStatus(providerMessageId: string): Promise<SmsDeliveryStatus> {
+  async getStatus(providerMessageId: string, sendingDeviceId?: string): Promise<SmsDeliveryStatus> {
     const apiKey = this.configService.get('TEXTBEE_API_KEY', { infer: true });
-    const deviceId = this.configService.get('TEXTBEE_DEVICE_ID', { infer: true });
+    const deviceId = sendingDeviceId ?? this.configService.get('TEXTBEE_DEVICE_ID', { infer: true });
     if (!apiKey || !deviceId) {
       // The lookup route is per-device, so the device id is required here
       // even though send() can omit it.
@@ -147,7 +148,7 @@ export class TextBeeAdapter implements SmsSender, SmsStatusChecker {
       });
       return await this.toStatus(response);
     } catch (error) {
-      const isTimeout = error instanceof Error && error.name === 'AbortError';
+      const isTimeout = controller.signal.aborted || (error instanceof Error && error.name === 'AbortError');
       this.logger.warn(`SMS status unknown: ${isTimeout ? 'timeout' : 'network error'}`);
       return { state: 'unknown', reason: isTimeout ? 'timeout' : 'network_error' };
     } finally {
@@ -161,6 +162,9 @@ export class TextBeeAdapter implements SmsSender, SmsStatusChecker {
     }
     if (response.status === 404) {
       return { state: 'unknown', reason: 'not_found' };
+    }
+    if (response.status === 429) {
+      return { state: 'unknown', reason: 'rate_limited', retryAfterMs: this.parseRetryAfterMs(response.headers.get('retry-after')) ?? 60000 };
     }
     if (response.status >= 500) {
       return { state: 'unknown', reason: 'server_error' };
@@ -192,9 +196,12 @@ export class TextBeeAdapter implements SmsSender, SmsStatusChecker {
         const code = message?.errorCode;
         return {
           state: 'failed',
-          ...(code !== undefined && code !== '' ? { errorCode: String(code) } : {}),
+          ...(code !== undefined && /^[A-Za-z0-9_-]{1,64}$/.test(String(code)) ? { errorCode: String(code) } : {}),
         };
       }
+      case 'unknown':
+      case 'delivery_failed':
+        return { state: 'unknown', reason: 'provider_unknown' };
       default:
         this.logger.warn(
           `TextBee returned an unrecognized status response (HTTP ${response.status})`,
@@ -308,6 +315,8 @@ export class TextBeeAdapter implements SmsSender, SmsStatusChecker {
       return undefined;
     }
     const seconds = Number(headerValue);
-    return Number.isFinite(seconds) ? seconds * 1000 : undefined;
+    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+    const date = Date.parse(headerValue);
+    return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined;
   }
 }

@@ -41,7 +41,7 @@ export type SmsRejectionReason = (typeof SmsRejectionReason)[keyof typeof SmsRej
 // submission, so treating it as a confirmed rejection risks a false
 // rejection and an unsafe blind retry.
 export type SmsSendResult =
-  | { outcome: 'accepted'; providerMessageId?: string; warning?: string }
+  | { outcome: 'accepted'; providerMessageId?: string; deviceId?: string; warning?: string }
   | { outcome: 'rejected'; reason: SmsRejectionReason; retryable: boolean; retryAfterMs?: number }
   | {
       outcome: 'unknown';
@@ -67,6 +67,7 @@ export type SmsDeliveryStatus =
   | { state: 'failed'; errorCode?: string }
   | {
       state: 'unknown';
+      retryAfterMs?: number;
       reason:
         | 'timeout'
         | 'network_error'
@@ -74,5 +75,7 @@ export type SmsDeliveryStatus =
         | 'server_error'
         | 'not_found'
         | 'authentication_failed'
-        | 'not_configured';
+        | 'not_configured'
+        | 'rate_limited'
+        | 'provider_unknown';
     };
