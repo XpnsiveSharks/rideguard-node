@@ -13,7 +13,6 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { EnvironmentVariables } from '@/config/env.validation';
-import { SmsDeliveryTracker } from '@/infra/sms/sms-delivery-tracker';
 import { PH_MOBILE_NUMBER_PATTERN, SMS_SENDER } from '@/infra/sms/sms.constants';
 import type { SmsSender } from '@/infra/sms/sms-sender.interface';
 import type { SmsSendResult } from '@/infra/sms/sms.types';
@@ -22,7 +21,6 @@ import { AlertsService } from '../alerts/alerts.service';
 import { SosRepository } from './infrastructure/sos.repository';
 import { composeEndMessage, composeInitialMessage } from './sos-message';
 import {
-  SOS_DELIVERY_TRACK_TIMEOUT_MS,
   SOS_JOB_EXPIRY_MS,
   SOS_LOCATION_MAX_AGE_MS,
   SOS_LOCATION_MAX_FUTURE_MS,
@@ -37,6 +35,9 @@ import type {
   SosRecord,
   SubmissionSummary,
 } from './sos.types';
+import { idleRefresh } from './sos.types';
+import { acceptedWork, endEligible } from './sos-delivery';
+import { SosDeliveryWorker } from './sos-delivery.worker';
 
 const FALLBACK_NAME = 'A RideGuard user';
 
@@ -63,9 +64,9 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
     private readonly repository: SosRepository,
     private readonly profileService: ProfileService,
     @Inject(SMS_SENDER) private readonly smsSender: SmsSender,
-    private readonly deliveryTracker: SmsDeliveryTracker,
     private readonly configService: ConfigService<EnvironmentVariables, true>,
     private readonly alertsService: AlertsService,
+    private readonly deliveryWorker: SosDeliveryWorker,
   ) {}
 
   onModuleInit(): void {
@@ -97,7 +98,7 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
                 r.ended?.status === 'sending' ||
                 (record.status === 'ended' &&
                   r.ended === null &&
-                  (r.initial.status === 'accepted' || r.initial.status === 'unknown')),
+                  endEligible(r)),
             )
           )
             continue;
@@ -147,7 +148,7 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
         if (
           record.status === 'ended' &&
           recipient.ended === null &&
-          (recipient.initial.status === 'accepted' || recipient.initial.status === 'unknown')
+          endEligible(recipient)
         ) {
           recipient.ended = this.summary('queued', nowIso);
         }
@@ -220,6 +221,11 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
     return this.toPublic(await this.findOwned(uid, sosId));
   }
 
+  async refreshStatus(uid: string, sosId: string) {
+    const result = await this.deliveryWorker.request(uid, sosId);
+    return { scheduled: result.scheduled, sos: this.toPublic(result.record) };
+  }
+
   async getByRequest(uid: string, requestId: string): Promise<PublicSos> {
     const mapping = await this.repository.findByRequest(uid, requestId);
     if (!mapping || mapping.record.uid !== uid) throw new NotFoundException('SOS not found');
@@ -245,8 +251,7 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
         if (recipient.initial.status === 'queued') {
           recipient.initial = this.summary('cancelled', nowIso);
         } else if (
-          recipient.initial.status === 'accepted' ||
-          recipient.initial.status === 'unknown'
+          endEligible(recipient)
         ) {
           // Only these may have reached the contact, so only they get an end
           // update. A 'sending' recipient gets one when its result lands.
@@ -382,19 +387,21 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
 
       const result = await this.smsSender.send({ recipient: claim.phone, message: claim.text });
       const summary = this.fromSendResult(result);
+      const work = acceptedWork(result, summary);
       const providerMessageId =
         result.outcome === 'accepted' ? result.providerMessageId : undefined;
 
       const needsEnd = await this.repository.mutate(sosId, (record) => {
         const recipient = this.find(record, contactId);
         recipient.initial = summary;
+        if (work) recipient.initialWork = work;
         if (providerMessageId) recipient.providerMessageId = providerMessageId;
         // Stopped while this send was in flight: it may still have reached
         // the contact, so follow up exactly once.
         if (
           record.status === 'ended' &&
           recipient.ended === null &&
-          (summary.status === 'accepted' || summary.status === 'unknown')
+          endEligible(recipient)
         ) {
           recipient.ended = this.summary('queued', new Date().toISOString());
           return true;
@@ -403,9 +410,6 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
       });
 
       this.logger.log(`SOS ${sosId}: initial send ${summary.status}`);
-      if (summary.status === 'accepted' && providerMessageId) {
-        void this.trackDelivery(sosId, contactId, providerMessageId);
-      }
       if (needsEnd) await this.sendEnd(sosId, contactId);
     } catch (error) {
       await this.markInterrupted(sosId, contactId, 'initial', error);
@@ -439,37 +443,14 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
 
       const result = await this.smsSender.send({ recipient: claim.phone, message: claim.text });
       const summary = this.fromSendResult(result);
+      const work = acceptedWork(result, summary);
       await this.repository.mutate(sosId, (record) => {
         this.find(record, contactId).ended = summary;
+        if (work) this.find(record, contactId).endedWork = work;
       });
       this.logger.log(`SOS ${sosId}: end update ${summary.status}`);
     } catch (error) {
       await this.markInterrupted(sosId, contactId, 'ended', error);
-    }
-  }
-
-  // After the provider accepted a message, ask it what actually happened. A
-  // confirmed failure downgrades 'accepted' to 'failed'; anything else leaves
-  // 'accepted' alone (acceptance is all that was ever claimed).
-  private async trackDelivery(
-    sosId: string,
-    contactId: string,
-    providerMessageId: string,
-  ): Promise<void> {
-    try {
-      const status = await this.deliveryTracker.track(providerMessageId, {
-        timeoutMs: SOS_DELIVERY_TRACK_TIMEOUT_MS,
-      });
-      if (status.state !== 'failed') return;
-      await this.repository.mutate(sosId, (record) => {
-        const recipient = this.find(record, contactId);
-        if (recipient.initial.status === 'accepted') {
-          recipient.initial = this.summary('failed', new Date().toISOString(), 'delivery_failed');
-        }
-      });
-      this.logger.warn(`SOS ${sosId}: provider reported delivery failure`);
-    } catch {
-      this.logger.warn(`SOS ${sosId}: delivery check could not complete`);
     }
   }
 
@@ -517,7 +498,7 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
     updatedAt: string,
     errorCode?: string,
   ): SubmissionSummary {
-    return errorCode ? { status, updatedAt, errorCode } : { status, updatedAt };
+    return errorCode ? { status, updatedAt, errorCode, delivery: null } : { status, updatedAt, delivery: null };
   }
 
   private find(record: SosRecord, contactId: string): SosRecipient {
@@ -544,12 +525,13 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
       createdAt: record.createdAt,
       endedAt: record.endedAt,
       location: record.location,
+      statusRefresh: record.statusRefresh ?? idleRefresh(),
       recipients: record.recipients.map((recipient) => ({
         contactId: recipient.contactId,
         name: recipient.name,
         phone: maskPhone(recipient.phone),
-        initial: recipient.initial,
-        ended: recipient.ended,
+        initial: { ...recipient.initial, delivery: recipient.initial.delivery ?? null },
+        ended: recipient.ended ? { ...recipient.ended, delivery: recipient.ended.delivery ?? null } : null,
       })),
     };
   }

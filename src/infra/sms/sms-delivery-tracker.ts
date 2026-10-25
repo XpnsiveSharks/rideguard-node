@@ -23,6 +23,10 @@ const UNRECOVERABLE_REASONS = ['authentication_failed', 'not_configured', 'not_f
 export class SmsDeliveryTracker {
   constructor(@Inject(SMS_STATUS_CHECKER) private readonly checker: SmsStatusChecker) {}
 
+  check(providerMessageId: string, deviceId: string): Promise<SmsDeliveryStatus> {
+    return this.checker.getStatus(providerMessageId, deviceId);
+  }
+
   async track(providerMessageId: string, options: TrackOptions = {}): Promise<SmsDeliveryStatus> {
     const intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
     const deadline = Date.now() + (options.timeoutMs ?? DEFAULT_TIMEOUT_MS);

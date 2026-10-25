@@ -191,7 +191,7 @@
                   "value": "application/json"
                 }
               ],
-              "body": "{\n  \"success\": true,\n  \"message\": \"Request completed successfully\",\n  \"timestamp\": \"2026-10-24T00:00:00.000Z\",\n  \"data\": {\n    \"sosId\": \"example-sos\",\n    \"requestId\": \"00000000-0000-4000-8000-000000000001\",\n    \"alertId\": \"example-alert\",\n    \"status\": \"active\",\n    \"createdAt\": \"2026-10-24T00:00:00.000Z\",\n    \"endedAt\": null,\n    \"location\": null,\n    \"recipients\": [\n      {\n        \"contactId\": \"example-contact\",\n        \"name\": \"Test contact\",\n        \"phone\": \"+639******000\",\n        \"initial\": {\n          \"status\": \"unknown\",\n          \"updatedAt\": \"2026-10-24T00:00:00.000Z\",\n          \"errorCode\": \"timeout\"\n        },\n        \"ended\": null\n      }\n    ]\n  }\n}"
+              "body": "{\n  \"success\": true,\n  \"message\": \"Request completed successfully\",\n  \"timestamp\": \"2026-10-24T00:00:00.000Z\",\n  \"data\": {\n    \"sosId\": \"example-sos\",\n    \"requestId\": \"00000000-0000-4000-8000-000000000001\",\n    \"alertId\": \"example-alert\",\n    \"status\": \"active\",\n    \"createdAt\": \"2026-10-24T00:00:00.000Z\",\n    \"endedAt\": null,\n    \"location\": null,\n    \"recipients\": [\n      {\n        \"contactId\": \"example-contact\",\n        \"name\": \"Test contact\",\n        \"phone\": \"+639******000\",\n        \"initial\": {\n          \"status\": \"unknown\",\n          \"updatedAt\": \"2026-10-24T00:00:00.000Z\",\n          \"errorCode\": \"timeout\",\n          \"delivery\": null\n        },\n        \"ended\": null\n      }\n    ],\n    \"statusRefresh\": {\n      \"state\": \"idle\",\n      \"requestedAt\": null,\n      \"expiresAt\": null,\n      \"nextAllowedAt\": null\n    }\n  }\n}"
             }
           ]
         },
@@ -834,6 +834,179 @@
               }
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "Delivery status refresh",
+      "item": [
+        {
+          "name": "Refresh saved message status",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/sos/{{sosId}}/refresh-status",
+            "description": "Status-only. No SMS send. Both active and ended owned SOS are supported. 202 schedules/reuses a durable job; 200 means cooldown/no eligible work."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('accepted job or honest no-work/cooldown', () => pm.expect([200,202]).to.include(pm.response.code));",
+                  "pm.test('delivery contract and masked data', () => { const s = pm.response.json().data; pm.expect(s.statusRefresh).to.have.keys('state','requestedAt','expiresAt','nextAllowedAt'); for (const r of s.recipients) { pm.expect(r).not.to.have.property('initialWork'); pm.expect(r).not.to.have.property('providerMessageId'); for (const m of [r.initial,r.ended].filter(Boolean)) pm.expect(m).to.have.property('delivery'); } });"
+                ]
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "Pending status-only job (fixture)",
+              "originalRequest": {},
+              "status": "Accepted",
+              "code": 202,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"SOS status refresh scheduled\",\n  \"timestamp\": \"2026-10-25T02:00:10.000Z\",\n  \"data\": {\n    \"sosId\": \"fixture-sos\",\n    \"requestId\": \"00000000-0000-4000-8000-000000000001\",\n    \"alertId\": null,\n    \"status\": \"ended\",\n    \"createdAt\": \"2026-10-25T02:00:00.000Z\",\n    \"endedAt\": \"2026-10-25T02:00:10.000Z\",\n    \"location\": null,\n    \"statusRefresh\": {\n      \"state\": \"pending\",\n      \"requestedAt\": \"2026-10-25T02:00:10.000Z\",\n      \"expiresAt\": \"2026-10-25T02:01:10.000Z\",\n      \"nextAllowedAt\": \"2026-10-25T02:00:40.000Z\"\n    },\n    \"recipients\": [\n      {\n        \"contactId\": \"fixture-contact\",\n        \"name\": \"Fixture contact\",\n        \"phone\": \"+639******111\",\n        \"initial\": {\n          \"status\": \"accepted\",\n          \"updatedAt\": \"2026-10-25T02:00:00.000Z\",\n          \"delivery\": {\n            \"status\": \"sent\",\n            \"observedAt\": \"2026-10-25T02:00:05.000Z\",\n            \"acceptedAt\": \"2026-10-25T02:00:00.000Z\",\n            \"expiresAt\": \"2026-10-25T02:05:00.000Z\",\n            \"tracking\": \"active\",\n            \"lastAttemptAt\": \"2026-10-25T02:00:05.000Z\",\n            \"lastCheckedAt\": \"2026-10-25T02:00:05.000Z\",\n            \"lastCheckError\": null,\n            \"failureCode\": null\n          }\n        },\n        \"ended\": null\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Foreign status refresh",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{foreignToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/sos/{{sosId}}/refresh-status",
+            "description": "Status-only. No SMS send. Both active and ended owned SOS are supported. 202 schedules/reuses a durable job; 200 means cooldown/no eligible work."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('owner-safe 404', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Unauthenticated status refresh",
+          "request": {
+            "method": "POST",
+            "auth": {
+              "type": "noauth"
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/sos/{{sosId}}/refresh-status",
+            "description": "Status-only. No SMS send. Both active and ended owned SOS are supported. 202 schedules/reuses a durable job; 200 means cooldown/no eligible work."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Reject resend body on refresh",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"resend\":true}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": "{{baseUrl}}/sos/{{sosId}}/refresh-status",
+            "description": "Status-only. No SMS send. Both active and ended owned SOS are supported. 202 schedules/reuses a durable job; 200 means cooldown/no eligible work."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ],
+          "response": []
         }
       ]
     }
