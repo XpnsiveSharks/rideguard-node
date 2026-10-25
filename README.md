@@ -2,6 +2,9 @@
 
 NestJS backend for RideGuard.
 
+Before changing code or deploying, read the [deployment checklist](docs/deployment-checklist.md).
+AI assistants must also follow [AGENTS.md](AGENTS.md).
+
 ## Quick start
 
 ```bash
