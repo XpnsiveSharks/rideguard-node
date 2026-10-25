@@ -525,6 +525,7 @@ describe('SosService', () => {
       app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
       const reflector = new Reflector();
       const auth = {
+        isDeletionScheduled: jest.fn().mockResolvedValue(false),
         verifyToken: (token: string) => {
           const uid = (
             {
