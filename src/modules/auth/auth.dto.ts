@@ -34,3 +34,8 @@ export class ForgotPasswordDto {
   @Matches(GMAIL_PATTERN, { message: 'email must use the @gmail.com domain' })
   email!: string;
 }
+
+export class DeleteAccountDto {
+  @IsString()
+  password!: string;
+}

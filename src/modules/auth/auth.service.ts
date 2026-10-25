@@ -233,6 +233,104 @@ export class AuthService {
     store.set(email, attempts);
   }
 
+  // *** ACCOUNT DELETION ***
+  async isDeletionScheduled(uid: string): Promise<boolean> {
+    const profile = await this.firestore.collection(PROFILES_COLLECTION).doc(uid).get();
+    if (!profile.exists) return false;
+    const deletionScheduledAt = (profile.data() as { deletionScheduledAt?: unknown } | undefined)
+      ?.deletionScheduledAt;
+    if (!deletionScheduledAt) return false;
+    const scheduledDate = this.toDate(deletionScheduledAt);
+    return scheduledDate !== null;
+  }
+
+  async getDeletionStatus(
+    uid: string,
+  ): Promise<{ scheduled: boolean; deletionScheduledAt: string | null }> {
+    const profile = await this.firestore.collection(PROFILES_COLLECTION).doc(uid).get();
+    if (!profile.exists) {
+      return { scheduled: false, deletionScheduledAt: null };
+    }
+    const deletionScheduledAt = (profile.data() as { deletionScheduledAt?: unknown } | undefined)
+      ?.deletionScheduledAt;
+    const scheduledDate = this.toDate(deletionScheduledAt);
+    if (!scheduledDate) {
+      return { scheduled: false, deletionScheduledAt: null };
+    }
+    return { scheduled: true, deletionScheduledAt: scheduledDate.toISOString() };
+  }
+
+  async requestAccountDeletion(
+    uid: string,
+    password: string,
+  ): Promise<{ scheduled: boolean; deletionScheduledAt: string }> {
+    const user = await this.auth.getUser(uid);
+    const email = user.email;
+    if (!email) {
+      throw new BadRequestException('User does not have an associated email address.');
+    }
+
+    const response = await fetch(
+      `${this.config.get('FIREBASE_AUTH_API_BASE_URL', { infer: true })}/accounts:signInWithPassword?key=${encodeURIComponent(
+        this.config.get('FIREBASE_WEB_API_KEY', { infer: true }),
+      )}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, returnSecureToken: true }),
+      },
+    );
+    const body = (await response.json().catch(() => null)) as {
+      localId?: string;
+      email?: string;
+    } | null;
+
+    if (!response.ok || !body?.localId || body.localId !== uid) {
+      throw new UnauthorizedException('Invalid password.');
+    }
+
+    const graceDays = this.config.get('ACCOUNT_DELETION_GRACE_DAYS', { infer: true }) ?? 30;
+    const deletionScheduledAt = new Date(Date.now() + graceDays * 24 * 60 * 60 * 1000);
+
+    const profileRef = this.firestore.collection(PROFILES_COLLECTION).doc(uid);
+    await profileRef.set(
+      {
+        deletionScheduledAt,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+
+    await this.auth.revokeRefreshTokens(uid).catch(() => undefined);
+    await this.auth.updateUser(uid, { disabled: true }).catch(() => undefined);
+
+    return { scheduled: true, deletionScheduledAt: deletionScheduledAt.toISOString() };
+  }
+
+  async cancelAccountDeletion(uid: string): Promise<{ scheduled: boolean }> {
+    const profileRef = this.firestore.collection(PROFILES_COLLECTION).doc(uid);
+    await profileRef.set(
+      {
+        deletionScheduledAt: FieldValue.delete(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+
+    await this.auth.updateUser(uid, { disabled: false }).catch(() => undefined);
+    return { scheduled: false };
+  }
+
+  private toDate(value: unknown): Date | null {
+    if (!value) return null;
+    if (value instanceof Date) return value;
+    if (typeof (value as { toDate?: unknown }).toDate === 'function') {
+      return (value as { toDate: () => Date }).toDate();
+    }
+    const parsed = new Date(value as string | number);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
   // *** CREATE ABLY TOKEN REQUEST FOR USER ***
   createAblyTokenRequest(userId: string): Promise<TokenRequest> {
     const userChannelPattern = REALTIME_CHANNELS.alertsForUser(userId);
