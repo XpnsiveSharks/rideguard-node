@@ -30,7 +30,7 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, StandardRespon
         return {
           success: true,
           message: message ?? DEFAULT_SUCCESS_MESSAGE,
-          data: (data ?? {}) as T,
+          data: (data === undefined ? {} : data) as T,
           timestamp: now.toISOString(),
         };
       }),
