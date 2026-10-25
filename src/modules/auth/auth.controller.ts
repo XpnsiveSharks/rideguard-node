@@ -6,7 +6,8 @@ import { AuthService } from './auth.service';
 import { TokenRequest } from 'ably';
 import { Public } from '@/common/decorators/public.decorator';
 import { Throttle } from '@nestjs/throttler';
-import { ForgotPasswordDto, LoginDto, RegisterDto } from './auth.dto';
+import { DeleteAccountDto, ForgotPasswordDto, LoginDto, RegisterDto } from './auth.dto';
+import { AllowDuringDeletion } from './account-deletion.decorator';
 
 @Controller('auth')
 export class AuthController {
@@ -77,5 +78,35 @@ export class AuthController {
   async getAblyToken(@Req() req: Request): Promise<TokenRequest> {
     const userId = req.user?.uid as string;
     return this.authService.createAblyTokenRequest(userId);
+  }
+
+  // POST /auth/delete-account
+  @Post('delete-account')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ResponseMessage('Account deletion scheduled successfully')
+  requestDeleteAccount(@Req() req: Request, @Body() body: DeleteAccountDto) {
+    const userId = req.user?.uid as string;
+    return this.authService.requestAccountDeletion(userId, body.password);
+  }
+
+  // POST /auth/delete-account/cancel
+  @Post('delete-account/cancel')
+  @HttpCode(HttpStatus.OK)
+  @AllowDuringDeletion()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ResponseMessage('Account deletion cancelled successfully')
+  cancelDeleteAccount(@Req() req: Request) {
+    const userId = req.user?.uid as string;
+    return this.authService.cancelAccountDeletion(userId);
+  }
+
+  // GET /auth/delete-account/status
+  @Get('delete-account/status')
+  @AllowDuringDeletion()
+  @ResponseMessage('Account deletion status retrieved successfully')
+  getDeleteAccountStatus(@Req() req: Request) {
+    const userId = req.user?.uid as string;
+    return this.authService.getDeletionStatus(userId);
   }
 }

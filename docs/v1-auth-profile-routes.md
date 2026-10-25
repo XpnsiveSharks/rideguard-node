@@ -132,6 +132,122 @@ subscribe access to that user's alerts and the shared button event channel.
 | `401`  | Missing or invalid Firebase bearer token. |
 | `429`  | Request exceeded the global throttle limit. |
 
+## POST /v1/auth/delete-account
+
+Schedules the authenticated user's account for deletion after the configured
+grace period. Requires the user's current account password. During the grace
+period, normal authenticated access is blocked, but deletion status and
+cancellation remain accessible.
+
+### Request Body
+
+| Field      | Type   | Required | Notes                                    |
+| ---------- | ------ | -------- | ---------------------------------------- |
+| `password` | string | Yes      | Current account password to authenticate |
+
+```json
+{
+  "password": "Password1"
+}
+```
+
+### Success Response (200)
+
+```json
+{
+  "success": true,
+  "message": "Account deletion scheduled successfully",
+  "data": {
+    "scheduled": true,
+    "deletionScheduledAt": "2026-11-24T16:00:00.000Z"
+  },
+  "timestamp": "2026-10-25T16:00:00.000Z"
+}
+```
+
+### Errors
+
+| Status | Reason                                    |
+| ------ | ----------------------------------------- |
+| `400`  | Validation failed (missing password).     |
+| `401`  | Missing token, invalid token, or wrong password. |
+| `429`  | Request exceeded the throttle limit.      |
+
+## POST /v1/auth/delete-account/cancel
+
+Cancels a pending account deletion request within the grace period window,
+clearing the scheduled deletion flag and re-enabling the user account.
+
+### Request
+
+No request body. Requires `Authorization: Bearer <token>`.
+
+### Success Response (200)
+
+```json
+{
+  "success": true,
+  "message": "Account deletion cancelled successfully",
+  "data": {
+    "scheduled": false
+  },
+  "timestamp": "2026-10-25T16:00:00.000Z"
+}
+```
+
+### Errors
+
+| Status | Reason                                    |
+| ------ | ----------------------------------------- |
+| `401`  | Missing or invalid Firebase bearer token. |
+| `429`  | Request exceeded the throttle limit.      |
+
+## GET /v1/auth/delete-account/status
+
+Returns the current account deletion status and scheduled deletion timestamp (if active)
+for the authenticated user. Accessible even while account deletion is pending.
+
+### Request
+
+No request body. Requires `Authorization: Bearer <token>`.
+
+### Success Response (200)
+
+When scheduled:
+
+```json
+{
+  "success": true,
+  "message": "Account deletion status retrieved successfully",
+  "data": {
+    "scheduled": true,
+    "deletionScheduledAt": "2026-11-24T16:00:00.000Z"
+  },
+  "timestamp": "2026-10-25T16:00:00.000Z"
+}
+```
+
+When not scheduled:
+
+```json
+{
+  "success": true,
+  "message": "Account deletion status retrieved successfully",
+  "data": {
+    "scheduled": false,
+    "deletionScheduledAt": null
+  },
+  "timestamp": "2026-10-25T16:00:00.000Z"
+}
+```
+
+### Errors
+
+| Status | Reason                                    |
+| ------ | ----------------------------------------- |
+| `401`  | Missing or invalid Firebase bearer token. |
+| `429`  | Request exceeded the throttle limit.      |
+
 ## POST /v1/profile/personal-info
 
 Creates a profile document for the authenticated Firebase user. The user ID,
