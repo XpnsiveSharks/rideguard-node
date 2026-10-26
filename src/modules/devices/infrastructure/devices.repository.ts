@@ -167,4 +167,39 @@ export class DeviceRepository {
       .filter((doc) => doc.id.startsWith(CAMERA_ID_PREFIX))
       .map((doc) => DeviceMapper.toDomain(doc.data() as DeviceFields));
   }
+
+  async findDevicesByAssignedUser(assignedUserId: string): Promise<Device[]> {
+    const querySnapshot = await this.firestore
+      .collection(DEVICES_COLLECTION)
+      .where('assignedUserId', '==', assignedUserId)
+      .get();
+
+    return querySnapshot.docs.map((doc) => DeviceMapper.toDomain(doc.data() as DeviceFields));
+  }
+
+  async disconnectDevice(deviceId: string): Promise<Device> {
+    const reference = this.firestore.collection(DEVICES_COLLECTION).doc(deviceId);
+
+    return this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+
+      if (!snapshot.exists) {
+        throw new NotFoundException(`Incorrect device ID: ${deviceId}`);
+      }
+
+      const device = DeviceMapper.toDomain(snapshot.data() as DeviceFields);
+      const updatedDevice = device.disconnect();
+
+      transaction.update(reference, {
+        streamUrl: FieldValue.delete(),
+        lastSeenAt: FieldValue.delete(),
+        connected: false,
+        activeSessionId: null,
+        sessionExpiresAt: null,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return updatedDevice;
+    });
+  }
 }

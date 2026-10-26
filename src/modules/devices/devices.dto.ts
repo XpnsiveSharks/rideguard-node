@@ -2,6 +2,7 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
+  IsOptional,
   IsString,
   IsUrl,
   Length,
@@ -57,4 +58,22 @@ export class VerifyPhoneUploadDto {
 export class PhonePresenceDto {
   @IsBoolean()
   connected!: boolean;
+}
+
+export enum DisconnectDeviceTarget {
+  BUTTON = 'button',
+  CAMERA = 'camera',
+  ALL = 'all',
+}
+
+export class DisconnectDeviceDto {
+  @IsOptional()
+  @Transform(({ value }: StringTransformParams) => value?.toLowerCase())
+  @IsEnum(DisconnectDeviceTarget, { message: 'device must be one of: button, camera, all' })
+  device?: DisconnectDeviceTarget = DisconnectDeviceTarget.ALL;
+
+  @IsOptional()
+  @Transform(({ value }: StringTransformParams) => value?.trim())
+  @IsString()
+  device_id?: string;
 }

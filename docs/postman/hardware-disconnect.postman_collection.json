@@ -1,0 +1,362 @@
+{
+  "info": {
+    "name": "RideGuard Hardware Disconnect",
+    "description": "Endpoints to disconnect physical buttons and cameras (ESP32 and phone cameras) for the authenticated rider.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5565/v1"
+    },
+    {
+      "key": "firebaseToken",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Devices / Hardware",
+      "item": [
+        {
+          "name": "Disconnect all hardware devices",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebaseToken}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devices/disconnect?device=all",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "disconnect"],
+              "query": [
+                {
+                  "key": "device",
+                  "value": "all",
+                  "description": "Target device type: all (default), button, or camera"
+                }
+              ]
+            },
+            "description": "Disconnects all hardware peripherals (both button and camera) currently associated with the authenticated rider. Teardown ends any active phone camera session and clears stream URLs/presence."
+          },
+          "response": [
+            {
+              "name": "200 Success - Hardware Disconnected",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{firebaseToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/devices/disconnect?device=all",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["devices", "disconnect"],
+                  "query": [
+                    {
+                      "key": "device",
+                      "value": "all"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Request completed successfully\",\n  \"data\": {\n    \"disconnected\": [\n      \"BUT-123-ABC\",\n      \"CAM-482-QLZ\"\n    ],\n    \"devices\": [\n      {\n        \"device_id\": \"BUT-123-ABC\",\n        \"device_type\": \"button\",\n        \"status\": \"disconnected\"\n      },\n      {\n        \"device_id\": \"CAM-482-QLZ\",\n        \"device_type\": \"camera\",\n        \"status\": \"disconnected\"\n      }\n    ]\n  },\n  \"timestamp\": \"2026-10-26T12:00:00.000Z\"\n}"
+            },
+            {
+              "name": "200 Success - Already Disconnected (Idempotent)",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{firebaseToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/devices/disconnect?device=all",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["devices", "disconnect"],
+                  "query": [
+                    {
+                      "key": "device",
+                      "value": "all"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Request completed successfully\",\n  \"data\": {\n    \"disconnected\": [],\n    \"devices\": [\n      {\n        \"device_id\": \"BUT-123-ABC\",\n        \"device_type\": \"button\",\n        \"status\": \"disconnected\"\n      },\n      {\n        \"device_id\": \"CAM-482-QLZ\",\n        \"device_type\": \"camera\",\n        \"status\": \"disconnected\"\n      }\n    ]\n  },\n  \"timestamp\": \"2026-10-26T12:00:00.000Z\"\n}"
+            },
+            {
+              "name": "401 Unauthorized - Missing / Invalid Token",
+              "originalRequest": {
+                "method": "POST",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/devices/disconnect?device=all",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["devices", "disconnect"],
+                  "query": [
+                    {
+                      "key": "device",
+                      "value": "all"
+                    }
+                  ]
+                }
+              },
+              "status": "Unauthorized",
+              "code": 401,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": false,\n  \"message\": \"Unauthorized\",\n  \"statusCode\": 401,\n  \"timestamp\": \"2026-10-26T12:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Disconnect camera only",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebaseToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devices/disconnect?device=camera",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "disconnect"],
+              "query": [
+                {
+                  "key": "device",
+                  "value": "camera",
+                  "description": "Filters disconnect to only cameras"
+                }
+              ]
+            },
+            "description": "Disconnects only camera devices (ESP32 camera and/or phone camera session) without affecting button connectivity."
+          },
+          "response": [
+            {
+              "name": "200 Success - Camera Disconnected",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{firebaseToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/devices/disconnect?device=camera",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["devices", "disconnect"],
+                  "query": [
+                    {
+                      "key": "device",
+                      "value": "camera"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Request completed successfully\",\n  \"data\": {\n    \"disconnected\": [\n      \"CAM-482-QLZ\"\n    ],\n    \"devices\": [\n      {\n        \"device_id\": \"CAM-482-QLZ\",\n        \"device_type\": \"camera\",\n        \"status\": \"disconnected\"\n      }\n    ]\n  },\n  \"timestamp\": \"2026-10-26T12:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Disconnect button only",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebaseToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devices/disconnect?device=button",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "disconnect"],
+              "query": [
+                {
+                  "key": "device",
+                  "value": "button",
+                  "description": "Filters disconnect to only physical buttons"
+                }
+              ]
+            },
+            "description": "Disconnects only the physical button without affecting cameras."
+          },
+          "response": [
+            {
+              "name": "200 Success - Button Disconnected",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{firebaseToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/devices/disconnect?device=button",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["devices", "disconnect"],
+                  "query": [
+                    {
+                      "key": "device",
+                      "value": "button"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Request completed successfully\",\n  \"data\": {\n    \"disconnected\": [\n      \"BUT-123-ABC\"\n    ],\n    \"devices\": [\n      {\n        \"device_id\": \"BUT-123-ABC\",\n        \"device_type\": \"button\",\n        \"status\": \"disconnected\"\n      }\n    ]\n  },\n  \"timestamp\": \"2026-10-26T12:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Disconnect specific device by ID",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{firebaseToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/devices/disconnect?device_id=CAM-482-QLZ",
+              "host": ["{{baseUrl}}"],
+              "path": ["devices", "disconnect"],
+              "query": [
+                {
+                  "key": "device_id",
+                  "value": "CAM-482-QLZ",
+                  "description": "Canonical ID of specific device to disconnect"
+                }
+              ]
+            },
+            "description": "Disconnects a specific device ID owned by the user. Returns 404 if device is not found, or 403 if assigned to another user."
+          },
+          "response": [
+            {
+              "name": "200 Success - Specific Device Disconnected",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{firebaseToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/devices/disconnect?device_id=CAM-482-QLZ",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["devices", "disconnect"],
+                  "query": [
+                    {
+                      "key": "device_id",
+                      "value": "CAM-482-QLZ"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": true,\n  \"message\": \"Request completed successfully\",\n  \"data\": {\n    \"disconnected\": [\n      \"CAM-482-QLZ\"\n    ],\n    \"devices\": [\n      {\n        \"device_id\": \"CAM-482-QLZ\",\n        \"device_type\": \"camera\",\n        \"status\": \"disconnected\"\n      }\n    ]\n  },\n  \"timestamp\": \"2026-10-26T12:00:00.000Z\"\n}"
+            },
+            {
+              "name": "404 Not Found - Unknown Device ID",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Authorization",
+                    "value": "Bearer {{firebaseToken}}"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/devices/disconnect?device_id=CAM-999-NON",
+                  "host": ["{{baseUrl}}"],
+                  "path": ["devices", "disconnect"],
+                  "query": [
+                    {
+                      "key": "device_id",
+                      "value": "CAM-999-NON"
+                    }
+                  ]
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"success\": false,\n  \"message\": \"Device not found\",\n  \"statusCode\": 404,\n  \"timestamp\": \"2026-10-26T12:00:00.000Z\"\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

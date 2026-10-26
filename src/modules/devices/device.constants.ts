@@ -15,6 +15,7 @@ export const DEVICE_EVENTS = {
   DEVICE_ACTIVATED: 'device.activated',
   DEVICE_SECRET_ROTATED: 'device.secret.rotated',
   DEVICE_STREAM_URL_REPORTED: 'device.stream_url.reported',
+  DEVICE_DISCONNECTED: 'device.disconnected',
 } as const;
 
 export const DEVICE_MESSAGES = {
@@ -24,6 +25,7 @@ export const DEVICE_MESSAGES = {
   DEVICE_SECRET_ROTATED_MESSAGE: (deviceId: string) => `Device secret rotated for ID: ${deviceId}`,
   DEVICE_STREAM_URL_REPORTED_MESSAGE: (deviceId: string) =>
     `Device reported stream URL for ID: ${deviceId}`,
+  DEVICE_DISCONNECTED_MESSAGE: (deviceId: string) => `Device disconnected: ${deviceId}`,
 } as const;
 
 // Phone cameras. A session never runs longer than the max duration; the token
