@@ -136,6 +136,18 @@ export class Device {
     });
   }
 
+  disconnect(): Device {
+    return new Device({
+      ...this.fields,
+      streamUrl: undefined,
+      lastSeenAt: undefined,
+      connected: false,
+      activeSessionId: null,
+      sessionExpiresAt: null,
+      updatedAt: new Date(),
+    });
+  }
+
   getDeviceId(): string {
     return this.fields.deviceId;
   }

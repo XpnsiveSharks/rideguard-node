@@ -1,7 +1,7 @@
-import { Controller, Header, Headers, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Header, Headers, HttpCode, HttpStatus, Query, UseGuards } from '@nestjs/common';
 import { DevicesService } from './devices.service';
 import { Get, Post, Body, Patch, Param, Req, Res } from '@nestjs/common';
-import { DeviceRegistrationDto, ReportStreamUrlDto } from './devices.dto';
+import { DeviceRegistrationDto, DisconnectDeviceDto, ReportStreamUrlDto } from './devices.dto';
 import type { Request, Response } from 'express';
 import { Public } from '@/common/decorators/public.decorator';
 import { Roles } from '@/common/decorators/roles.decorator';
@@ -10,6 +10,7 @@ import { ServiceKeyGuard } from '@/common/guards/service-key.guard';
 import type {
   CameraView,
   DevicePublisherTokenResult,
+  DisconnectDeviceResult,
   RegisterDeviceResult,
   RotateDeviceSecretResult,
 } from './devices.types';
@@ -87,6 +88,21 @@ export class DevicesController {
   @Get('cameras')
   listMyCameras(@Req() req: Request): Promise<CameraView[]> {
     return this.devicesService.findCamerasForUser(req.user?.uid);
+  }
+
+  // MOBILE ROUTE
+  // route: POST /devices/disconnect
+  // Disconnects button, camera, or all connected hardware for the authenticated rider.
+  @Post('disconnect')
+  @HttpCode(HttpStatus.OK)
+  disconnectDevices(
+    @Req() req: Request,
+    @Query() query?: DisconnectDeviceDto,
+    @Body() body?: DisconnectDeviceDto,
+  ): Promise<DisconnectDeviceResult> {
+    const target = query?.device || body?.device;
+    const deviceId = query?.device_id || body?.device_id;
+    return this.devicesService.disconnectDevices(req.user?.uid, target, deviceId);
   }
 
   // SERVICE ROUTE (model-api)
