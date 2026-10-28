@@ -68,8 +68,8 @@ export class StationsService {
       location: input.location,
       locationSummary: input.locationSummary ?? null,
       coverage: {
-        barangay: input.coverageLabels.find((label) => label.toLowerCase().includes('barangay')) ?? null,
-        police: input.coverageLabels.find((label) => label.toLowerCase().includes('police')) ?? null,
+        barangay: recipients.find((r) => r.reasons.includes('barangay'))?.stationName ?? null,
+        police: recipients.find((r) => r.reasons.includes('police'))?.stationName ?? null,
       },
       notifiedRecipients: recipients,
       leadStationId: null,
@@ -123,7 +123,7 @@ export class StationsService {
         );
       }
       if (current.leadStationId === input.stationId) {
-        return current;
+        return { ...current, id: incidentRef.id };
       }
       if (!station) {
         throw new NotFoundException('Station not found.');
@@ -142,6 +142,7 @@ export class StationsService {
 
       const next: AuthorityIncident = {
         ...current,
+        id: incidentRef.id,
         revision: (current.revision ?? 0) + 1,
         status: 'acknowledged',
         leadStationId: input.stationId,

@@ -1,75 +1,88 @@
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import type { Request } from 'express';
+import type { Firestore } from 'firebase-admin/firestore';
+import { StationsController } from './stations.controller';
 import { StationsService } from './stations.service';
-import type { Station } from './stations.types';
+import type { AuthorityIncident, Station } from './stations.types';
 
-function makeFirestoreMock(incident: any, stationMap: Record<string, any>) {
-  const docs = new Map<string, any>();
-  for (const [path, data] of Object.entries(stationMap)) docs.set(path, data);
-  const set = jest.fn((ref: { path: string }, next: any) => {
-    if (ref.path === 'authority_incidents/incident-1') {
-      Object.assign(incident, next);
-    }
-  });
+type Data = Record<string, unknown>;
 
+function makeFirestore(seed: Record<string, Data>) {
+  const docs = new Map(Object.entries(seed));
+  const ref = (name: string, id: string) => ({ id, path: `${name}/${id}` });
+  const firestore = {
+    collection: (name: string) => ({ doc: (id: string) => ref(name, id) }),
+    runTransaction: async <T>(callback: (transaction: unknown) => Promise<T>): Promise<T> => {
+      const writes: [string, Data][] = [];
+      const result = await callback({
+        get: (r: { path: string }) => Promise.resolve({ data: () => docs.get(r.path) }),
+        set: (r: { path: string }, data: Data) => writes.push([r.path, data]),
+      });
+      for (const [path, data] of writes) docs.set(path, { ...docs.get(path), ...data });
+      return result;
+    },
+  };
+  return { firestore: firestore as unknown as Firestore, docs };
+}
+
+const stationA: Station = {
+  id: 'station-a',
+  name: 'Barangay Commonwealth',
+  type: 'barangay',
+  latitude: 14.6934,
+  longitude: 121.097,
+  status: 'active',
+  availability: 'available',
+  coverageLabels: ['Commonwealth', 'Batasan Hills'],
+};
+
+const stationB: Station = {
+  id: 'station-b',
+  name: 'North Fairview Police Station',
+  type: 'police',
+  latitude: 14.709,
+  longitude: 121.053,
+  status: 'active',
+  availability: 'available',
+  coverageLabels: ['Fairview'],
+};
+
+const stationC: Station = {
+  id: 'station-c',
+  name: 'Off duty station',
+  type: 'police',
+  latitude: 14.6,
+  longitude: 121.1,
+  status: 'inactive',
+  availability: 'available',
+  coverageLabels: ['Commonwealth'],
+};
+
+const location = { latitude: 14.69, longitude: 121.09, capturedAt: '2026-10-29T01:00:00.000Z' };
+
+function newIncident(): Data {
   return {
-    collection: jest.fn((name: string) => ({
-      doc: (id: string) => ({
-        path: `${name}/${id}`,
-        get: async () => {
-          const snapshot = name === 'authority_incidents' ? incident : docs.get(`${name}/${id}`);
-          return { data: () => snapshot };
-        },
-      }),
-    })),
-    runTransaction: jest.fn(async (cb: (tx: { get: (ref: { path: string }) => Promise<{ data: () => any }>; set: typeof set }) => Promise<any>) =>
-      cb({
-        get: async (ref: { path: string }) => {
-          if (ref.path === 'authority_incidents/incident-1') return { data: () => incident };
-          return { data: () => docs.get(ref.path) };
-        },
-        set,
-      }),
-    ),
+    sosId: 'sos-1',
+    revision: 1,
+    receivedAt: '2026-10-29T01:00:00.000Z',
+    status: 'new',
+    notifiedRecipients: [
+      {
+        stationId: 'station-a',
+        stationName: 'Barangay Commonwealth',
+        reasons: ['nearest'],
+        notifiedAt: '2026-10-29T01:00:00.000Z',
+      },
+    ],
+    leadStationId: null,
+    acknowledgedAt: null,
+    acknowledgedByUid: null,
   };
 }
 
 describe('StationsService', () => {
-  const stationA: Station = {
-    id: 'station-a',
-    name: 'Barangay Commonwealth',
-    type: 'barangay',
-    latitude: 14.6934,
-    longitude: 121.097,
-    status: 'active',
-    availability: 'available',
-    coverageLabels: ['Commonwealth', 'Batasan Hills'],
-  };
-
-  const stationB: Station = {
-    id: 'station-b',
-    name: 'North Fairview Police Station',
-    type: 'police',
-    latitude: 14.709,
-    longitude: 121.053,
-    status: 'active',
-    availability: 'available',
-    coverageLabels: ['Fairview'],
-  };
-
-  const stationC: Station = {
-    id: 'station-c',
-    name: 'Off duty station',
-    type: 'police',
-    latitude: 14.6,
-    longitude: 121.1,
-    status: 'inactive',
-    availability: 'available',
-    coverageLabels: ['Commonwealth'],
-  };
-
   it('deduplicates nearest and coverage recipients', () => {
-    const service = new StationsService({} as any);
-    const location = { latitude: 14.69, longitude: 121.09, capturedAt: '2026-10-29T01:00:00.000Z' };
+    const service = new StationsService({} as Firestore);
 
     const recipients = service.resolveRecipients({
       stations: [stationA, stationB, stationC],
@@ -77,86 +90,30 @@ describe('StationsService', () => {
       coverageLabels: ['Commonwealth', 'Fairview'],
     });
 
-    expect(recipients.map((recipient) => recipient.stationId)).toEqual([
-      'station-a',
-      'station-b',
-    ]);
-    expect(recipients.find((recipient) => recipient.stationId === 'station-a')?.reasons).toEqual([
-      'nearest',
-      'barangay',
-    ]);
-    expect(recipients.find((recipient) => recipient.stationId === 'station-b')?.reasons).toEqual([
-      'police',
-    ]);
+    expect(recipients.map((recipient) => recipient.stationId)).toEqual(['station-a', 'station-b']);
+    expect(recipients[0].reasons).toEqual(['nearest', 'barangay']);
+    expect(recipients[1].reasons).toEqual(['police']);
   });
 
-  it('allows the first valid acknowledgment and blocks a duplicate lead', async () => {
-    const incident = {
-      id: 'incident-1',
+  it('names coverage from the routed barangay and police stations', () => {
+    const service = new StationsService({} as Firestore);
+
+    const incident = service.projectIncident({
       sosId: 'sos-1',
-      revision: 1,
-      receivedAt: '2026-10-29T01:00:00.000Z',
-      status: 'new',
-      location: {
-        latitude: 14.69,
-        longitude: 121.09,
-        capturedAt: '2026-10-29T00:59:00.000Z',
-        accuracyMeters: 20,
-      },
-      locationSummary: 'Commonwealth Avenue',
-      coverage: { barangay: 'Commonwealth', police: null },
-      notifiedRecipients: [
-        {
-          stationId: 'station-a',
-          stationName: 'Barangay Commonwealth',
-          reasons: ['nearest'],
-          notifiedAt: '2026-10-29T01:00:00.000Z',
-        },
-      ],
-      leadStationId: null,
-      acknowledgedAt: null,
-      acknowledgedByUid: null,
-      callbackNumber: null,
-      riderName: null,
-      vehicleSummary: null,
-      emergencyContactSummary: null,
-      reportSummary: null,
-    };
-
-    const firestore = makeFirestoreMock(incident, {
-      'stations/station-a': {
-        id: 'station-a',
-        name: 'Barangay Commonwealth',
-        type: 'barangay',
-        latitude: 14.6934,
-        longitude: 121.097,
-        status: 'active',
-        availability: 'available',
-        coverageLabels: ['Commonwealth'],
-      },
+      location,
+      coverageLabels: ['Commonwealth', 'Fairview'],
+      stations: [stationA, stationB],
     });
 
-    const service = new StationsService(firestore as any);
-    const result = await service.acknowledgeLead({
-      incidentId: 'incident-1',
-      stationId: 'station-a',
-      actorUid: 'operator-1',
+    expect(incident.id).toBe('incident-sos-1');
+    expect(incident.coverage).toEqual({
+      barangay: 'Barangay Commonwealth',
+      police: 'North Fairview Police Station',
     });
-
-    expect(result.status).toBe('acknowledged');
-    expect(result.leadStationId).toBe('station-a');
-
-    const duplicate = service.acknowledgeLead({
-      incidentId: 'incident-1',
-      stationId: 'station-b',
-      actorUid: 'operator-2',
-    });
-
-    await expect(duplicate).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it('rejects missing locations before project dispatch', () => {
-    const service = new StationsService({} as any);
+  it('rejects missing locations before routing', () => {
+    const service = new StationsService({} as Firestore);
     expect(() =>
       service.projectIncident({
         sosId: 'sos-no-location',
@@ -167,35 +124,76 @@ describe('StationsService', () => {
     ).toThrow(BadRequestException);
   });
 
-  it('refuses an unavailable or non-recipient station', async () => {
-    const incident = {
-      id: 'incident-1',
-      sosId: 'sos-1',
-      revision: 1,
-      status: 'new',
-      notifiedRecipients: [{ stationId: 'station-a', stationName: 'Barangay Commonwealth', reasons: ['nearest'], notifiedAt: '2026-10-29T01:00:00.000Z' }],
-      leadStationId: null,
-      acknowledgedAt: null,
-      acknowledgedByUid: null,
-    };
+  it('lets the first recipient claim lead, replays it, and blocks another lead', async () => {
+    const { firestore, docs } = makeFirestore({
+      'authority_incidents/incident-1': newIncident(),
+      'stations/station-a': { ...stationA },
+      'stations/station-b': { ...stationB },
+    });
+    const service = new StationsService(firestore);
+    const ack = (stationId: string) =>
+      service.acknowledgeLead({ incidentId: 'incident-1', stationId, actorUid: 'operator-1' });
 
-    const firestore = makeFirestoreMock(incident, {
-      'stations/station-b': {
-        id: 'station-b',
-        name: 'North Fairview Police Station',
-        type: 'police',
-        latitude: 14.709,
-        longitude: 121.053,
-        status: 'active',
-        availability: 'busy',
-        coverageLabels: ['Fairview'],
-      },
+    const first = await ack('station-a');
+    expect(first).toMatchObject({
+      id: 'incident-1',
+      status: 'acknowledged',
+      leadStationId: 'station-a',
+      acknowledgedByUid: 'operator-1',
+      revision: 2,
     });
 
-    const service = new StationsService(firestore as any);
+    const replay = await ack('station-a');
+    expect(replay.revision).toBe(2);
+    await expect(ack('station-b')).rejects.toBeInstanceOf(ConflictException);
+    expect((docs.get('authority_incidents/incident-1') as AuthorityIncident).leadStationId).toBe(
+      'station-a',
+    );
+  });
 
+  it('refuses an unavailable or non-recipient station', async () => {
+    const { firestore } = makeFirestore({
+      'authority_incidents/incident-1': newIncident(),
+      'stations/station-a': { ...stationA, availability: 'busy' },
+      'stations/station-b': { ...stationB },
+    });
+    const service = new StationsService(firestore);
+    const ack = (stationId: string) =>
+      service.acknowledgeLead({ incidentId: 'incident-1', stationId, actorUid: 'operator-2' });
+
+    await expect(ack('station-a')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(ack('station-b')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
+describe('StationsController', () => {
+  const acknowledgeLead = jest.fn();
+  const controller = new StationsController({ acknowledgeLead } as unknown as StationsService);
+  const request = (user: Data | undefined) =>
+    ({ user, body: { stationId: 'station-b' } }) as unknown as Request;
+
+  beforeEach(() => acknowledgeLead.mockReset());
+
+  it('acknowledges as the station from the token claim only', async () => {
+    await controller.acknowledgeIncident(
+      request({ uid: 'operator-1', role: 'operator', stationId: 'station-a' }),
+      'incident-1',
+    );
+
+    expect(acknowledgeLead).toHaveBeenCalledWith({
+      incidentId: 'incident-1',
+      stationId: 'station-a',
+      actorUid: 'operator-1',
+    });
+  });
+
+  it('rejects an operator without a station claim', async () => {
     await expect(
-      service.acknowledgeLead({ incidentId: 'incident-1', stationId: 'station-b', actorUid: 'operator-2' }),
+      controller.acknowledgeIncident(
+        request({ uid: 'operator-1', role: 'operator' }),
+        'incident-1',
+      ),
     ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(acknowledgeLead).not.toHaveBeenCalled();
   });
 });

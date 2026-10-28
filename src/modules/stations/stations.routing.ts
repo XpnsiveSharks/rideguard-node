@@ -1,4 +1,9 @@
-import type { Station, StationRecipient, NotificationReason, StationLocation } from './stations.types';
+import type {
+  Station,
+  StationRecipient,
+  NotificationReason,
+  StationLocation,
+} from './stations.types';
 
 const EARTH_RADIUS_KM = 6371;
 
