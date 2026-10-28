@@ -10,12 +10,18 @@ import type { EnvironmentVariables } from '@/config/env.validation';
 import { SmsDeliveryTracker } from '@/infra/sms/sms-delivery-tracker';
 import { SosRepository } from './infrastructure/sos.repository';
 import { applyLookup, finishRefresh, messageKinds, terminal, workFor } from './sos-delivery';
+import {
+  SOS_DELIVERY_ACTIVE_POLL_MS,
+  SOS_DELIVERY_IDLE_POLL_MS,
+} from './sos.constants';
 import type { MessageKind } from './sos.types';
 
 @Injectable()
 export class SosDeliveryWorker implements OnModuleInit, OnModuleDestroy {
   private timer?: ReturnType<typeof setInterval>;
   private running = false;
+  private nextPollAt = 0;
+  private wakeRequested = false;
   private tickStartedAt = 0;
   private lastStallWarningAt = 0;
   private stage: 'idle' | 'query' | 'finalize' = 'idle';
@@ -31,12 +37,19 @@ export class SosDeliveryWorker implements OnModuleInit, OnModuleDestroy {
   onModuleInit() {
     // Status-only capability intentionally does not depend on SOS_ENABLED.
     this.logger.log('SOS delivery worker started');
-    this.timer = setInterval(() => void this.tick(), 1000);
+    this.timer = setInterval(() => void this.tick(false), 1000);
     this.timer.unref();
     void this.tick();
   }
   onModuleDestroy() {
     clearInterval(this.timer);
+  }
+
+  wake(): void {
+    this.nextPollAt = 0;
+    if (this.running) {
+      this.wakeRequested = true;
+    }
   }
 
   async request(uid: string, sosId: string) {
@@ -82,7 +95,7 @@ export class SosDeliveryWorker implements OnModuleInit, OnModuleDestroy {
     return outcome;
   }
 
-  async tick(): Promise<void> {
+  async tick(force = true): Promise<void> {
     if (this.running) {
       const now = Date.now();
       if (now - this.tickStartedAt >= 60000 && now - this.lastStallWarningAt >= 60000) {
@@ -95,6 +108,7 @@ export class SosDeliveryWorker implements OnModuleInit, OnModuleDestroy {
       }
       return;
     }
+    if (!force && Date.now() < this.nextPollAt) return;
     this.running = true;
     this.tickStartedAt = Date.now();
     try {
@@ -104,6 +118,9 @@ export class SosDeliveryWorker implements OnModuleInit, OnModuleDestroy {
         this.reportedQueryReady = true;
         this.logger.log({ message: 'SOS delivery query ready', dueCount: records.length });
       }
+      this.nextPollAt =
+        Date.now() +
+        (records.length > 0 ? SOS_DELIVERY_ACTIVE_POLL_MS : SOS_DELIVERY_IDLE_POLL_MS);
       const jobs: Promise<void>[] = [];
       for (const record of records) {
         // Expiry/finalization still runs when both HTTP slots are occupied.
@@ -150,9 +167,14 @@ export class SosDeliveryWorker implements OnModuleInit, OnModuleDestroy {
       void Promise.allSettled(jobs);
     } catch (error: unknown) {
       this.logger.warn({ message: 'SOS delivery scheduling failed', stage: this.stage, code: safeErrorCode(error) });
+      this.nextPollAt = Date.now() + SOS_DELIVERY_ACTIVE_POLL_MS;
     } finally {
       this.stage = 'idle';
       this.running = false;
+      if (this.wakeRequested) {
+        this.wakeRequested = false;
+        this.nextPollAt = 0;
+      }
     }
   }
 
