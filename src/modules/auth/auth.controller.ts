@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Patch, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { ResponseMessage } from '@/common/decorators/response-message.decorator';
 import { ProfileService } from '../profile/profile.service';
@@ -6,7 +6,17 @@ import { AuthService } from './auth.service';
 import { TokenRequest } from 'ably';
 import { Public } from '@/common/decorators/public.decorator';
 import { Throttle } from '@nestjs/throttler';
-import { DeleteAccountDto, ForgotPasswordDto, LoginDto, RegisterDto } from './auth.dto';
+import {
+  DeleteAccountDto,
+  EnrollPhoneKeyDto,
+  ForgotPasswordDto,
+  LoginDto,
+  PhoneAuthChallengeDto,
+  RegisterDto,
+  RevokePhoneKeyDto,
+  UpdateOnboardingDto,
+  VerifyPhoneSignatureDto,
+} from './auth.dto';
 import { AllowDuringDeletion } from './account-deletion.decorator';
 
 @Controller('auth')
@@ -108,5 +118,77 @@ export class AuthController {
   getDeleteAccountStatus(@Req() req: Request) {
     const userId = req.user?.uid as string;
     return this.authService.getDeletionStatus(userId);
+  }
+
+  // GET /auth/onboarding
+  @Get('onboarding')
+  @ResponseMessage('Onboarding progress retrieved successfully')
+  getOnboarding(@Req() req: Request) {
+    const userId = req.user?.uid as string;
+    return this.authService.getOnboarding(userId);
+  }
+
+  // PATCH /auth/onboarding
+  @Patch('onboarding')
+  @ResponseMessage('Onboarding progress updated successfully')
+  updateOnboarding(@Req() req: Request, @Body() body: UpdateOnboardingDto) {
+    const userId = req.user?.uid as string;
+    return this.authService.updateOnboarding(userId, body);
+  }
+
+  // POST /auth/onboarding/complete
+  @Post('onboarding/complete')
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Onboarding completed successfully')
+  completeOnboarding(@Req() req: Request) {
+    const userId = req.user?.uid as string;
+    return this.authService.completeOnboarding(userId);
+  }
+
+  // POST /auth/phone/enroll-key
+  @Post('phone/enroll-key')
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Phone authentication key enrolled successfully')
+  enrollPhoneKey(@Req() req: Request, @Body() body: EnrollPhoneKeyDto) {
+    const userId = req.user?.uid as string;
+    return this.authService.enrollPhoneKey(userId, body);
+  }
+
+  // POST /auth/phone/challenge
+  @Public()
+  @Post('phone/challenge')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ResponseMessage('Phone authentication challenge issued successfully')
+  issuePhoneChallenge(@Body() body: PhoneAuthChallengeDto) {
+    return this.authService.issuePhoneChallenge(body);
+  }
+
+  // POST /auth/phone/verify-signature
+  @Public()
+  @Post('phone/verify-signature')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ResponseMessage('Phone signature verified successfully')
+  verifyPhoneSignature(@Body() body: VerifyPhoneSignatureDto) {
+    return this.authService.verifyPhoneSignature(body);
+  }
+
+  // POST /auth/phone/revoke-key
+  @Post('phone/revoke-key')
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Phone authentication key revoked successfully')
+  revokePhoneKey(@Req() req: Request, @Body() body: RevokePhoneKeyDto) {
+    const userId = req.user?.uid as string;
+    return this.authService.revokePhoneKey(userId, body);
+  }
+
+  // POST /auth/logout
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @ResponseMessage('Logged out successfully')
+  logout(@Req() req: Request, @Headers('x-device-id') deviceId?: string) {
+    const userId = req.user?.uid as string;
+    return this.authService.logout(userId, deviceId);
   }
 }

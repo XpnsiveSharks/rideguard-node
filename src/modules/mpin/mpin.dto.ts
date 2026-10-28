@@ -54,3 +54,32 @@ export class MpinStatusContextDto {
   @IsNumber()
   inactiveForMs?: number;
 }
+
+export class MpinUnlockDto extends MpinPinDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  deviceId?: string;
+}
+
+export class MpinEmailLinkRequestDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(512)
+  authorization?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  deviceId?: string;
+}
+
+export class MpinEmailLinkChangeDto {
+  @IsString()
+  @MaxLength(512)
+  token!: string;
+
+  @IsString()
+  @Matches(PIN, { message: 'pin must be exactly four digits' })
+  pin!: string;
+}

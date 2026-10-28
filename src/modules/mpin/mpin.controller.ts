@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, Query, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import { MpinService } from './mpin.service';
 import {
@@ -6,8 +6,11 @@ import {
   MpinChallengeDto,
   MpinChangeCodeRequestDto,
   MpinCurrentPinDto,
+  MpinEmailLinkChangeDto,
+  MpinEmailLinkRequestDto,
   MpinPinDto,
   MpinStatusContextDto,
+  MpinUnlockDto,
   MpinVerifyCodeDto,
 } from './mpin.dto';
 
@@ -21,8 +24,12 @@ export class MpinController {
   }
 
   @Get('status')
-  status(@Req() req: Request, @Query() query?: MpinStatusContextDto) {
-    return this.service.status(this.uid(req), query);
+  status(
+    @Req() req: Request,
+    @Query() query?: MpinStatusContextDto,
+    @Headers('x-device-id') deviceId?: string,
+  ) {
+    return this.service.status(this.uid(req), query, deviceId);
   }
 
   @Post('setup')
@@ -31,8 +38,18 @@ export class MpinController {
   }
 
   @Post('unlock')
-  unlock(@Req() req: Request, @Body() b: MpinPinDto) {
-    return this.service.unlock(this.uid(req), b.pin);
+  unlock(
+    @Req() req: Request,
+    @Body() b: MpinUnlockDto,
+    @Headers('x-device-id') headerDeviceId?: string,
+  ) {
+    return this.service.unlock(this.uid(req), b.pin, b.deviceId || headerDeviceId);
+  }
+
+  @Post('lock')
+  @HttpCode(HttpStatus.OK)
+  lock(@Req() req: Request, @Headers('x-device-id') deviceId?: string) {
+    return this.service.revokeDeviceUnlock(this.uid(req), deviceId).then(() => ({ success: true as const }));
   }
 
   @Post('change/authorize')
@@ -59,6 +76,19 @@ export class MpinController {
     return this.service.verifyChangeCode(this.uid(req), b.challengeId, b.code);
   }
 
+  @Post('change/email-link')
+  requestChangeEmailLink(
+    @Req() req: Request,
+    @Body() b: MpinEmailLinkRequestDto,
+    @Headers('x-device-id') headerDeviceId?: string,
+  ) {
+    return this.service.requestChangeEmailLink(
+      this.uid(req),
+      b.authorization,
+      b.deviceId || headerDeviceId,
+    );
+  }
+
   @Post('change')
   change(@Req() req: Request, @Body() b: MpinAuthorizationDto) {
     return this.service.change(this.uid(req), b.authorization, b.pin);
@@ -79,8 +109,22 @@ export class MpinController {
     return this.service.verifyRecovery(this.uid(req), b.challengeId, b.code);
   }
 
+  @Post('recovery/email-link')
+  requestRecoveryEmailLink(
+    @Req() req: Request,
+    @Body() b: MpinEmailLinkRequestDto,
+    @Headers('x-device-id') headerDeviceId?: string,
+  ) {
+    return this.service.requestRecoveryEmailLink(this.uid(req), b.deviceId || headerDeviceId);
+  }
+
   @Post('recovery/reset')
   reset(@Req() req: Request, @Body() b: MpinAuthorizationDto) {
     return this.service.reset(this.uid(req), b.authorization, b.pin);
+  }
+
+  @Post('email-link/verify-and-change')
+  verifyEmailLinkAndChange(@Req() req: Request, @Body() b: MpinEmailLinkChangeDto) {
+    return this.service.verifyEmailLinkAndChange(this.uid(req), b.token, b.pin);
   }
 }
