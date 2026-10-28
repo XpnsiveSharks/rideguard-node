@@ -3,9 +3,12 @@
 This guide covers how to get the project running, how the code is organized, and
 how to scaffold new feature modules with `gen:module`.
 
+Read the [deployment checklist](docs/deployment-checklist.md) before changing code or tests.
+AI assistants must also follow [AGENTS.md](AGENTS.md).
+
 ## Requirements
 
-- Node.js 20+
+- Node.js 22.x (matches GitHub Actions)
 
 ## Getting started
 
@@ -72,6 +75,7 @@ consistent.
 
 - [ ] `yarn lint` passes
 - [ ] `yarn test` passes
+- [ ] [Deployment checklist](docs/deployment-checklist.md) completed, including the production build
 - [ ] No stray `console.log` or commented-out code
 - [ ] PR targets `development` and describes what changed and how to test it
 

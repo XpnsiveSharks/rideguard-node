@@ -408,6 +408,7 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
         }
         return false;
       });
+      if (work) this.deliveryWorker.wake();
 
       this.logger.log(`SOS ${sosId}: initial send ${summary.status}`);
       if (needsEnd) await this.sendEnd(sosId, contactId);
@@ -448,6 +449,7 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
         this.find(record, contactId).ended = summary;
         if (work) this.find(record, contactId).endedWork = work;
       });
+      if (work) this.deliveryWorker.wake();
       this.logger.log(`SOS ${sosId}: end update ${summary.status}`);
     } catch (error) {
       await this.markInterrupted(sosId, contactId, 'ended', error);

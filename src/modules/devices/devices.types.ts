@@ -49,3 +49,14 @@ export interface VerifiedPhoneUpload {
   session_id: string;
   expires_at: string;
 }
+
+export interface DisconnectedDeviceItem {
+  device_id: string;
+  device_type: string;
+  status: 'disconnected';
+}
+
+export interface DisconnectDeviceResult {
+  disconnected: string[];
+  devices: DisconnectedDeviceItem[];
+}

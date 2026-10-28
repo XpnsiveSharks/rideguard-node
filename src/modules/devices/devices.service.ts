@@ -1,5 +1,7 @@
 import {
+  BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -10,7 +12,12 @@ import { Device, DeviceType } from './domain/device.entity';
 import { DeviceRepository } from './infrastructure/devices.repository';
 import { DeviceId } from './domain/device-id.value-object';
 import { generateDeviceSecret, hashDeviceSecret } from './infrastructure/device-secret';
-import type { RegisterDeviceResult, RotateDeviceSecretResult } from './devices.types';
+import type {
+  CameraView,
+  DisconnectDeviceResult,
+  RegisterDeviceResult,
+  RotateDeviceSecretResult,
+} from './devices.types';
 import { PinoLogger } from 'nestjs-pino';
 import {
   CAMERA_ONLINE_WINDOW_MS,
@@ -19,12 +26,14 @@ import {
   MAX_DEVICE_ID_GENERATION_ATTEMPTS,
   PHONE_PRESENCE_TIMEOUT_MS,
 } from './device.constants';
-import type { CameraView } from './devices.types';
+import { DisconnectDeviceTarget } from './devices.dto';
+import { PhoneCameraService } from './phone-camera.service';
 
 @Injectable()
 export class DevicesService {
   constructor(
     private readonly deviceRepository: DeviceRepository,
+    private readonly phoneCameraService: PhoneCameraService,
     private readonly logger: PinoLogger,
   ) {}
 
@@ -244,5 +253,107 @@ export class DevicesService {
 
   handleButtonEvent(deviceId: string, buttonEvent: string) {
     this.logger.info(`Received button event from device ${deviceId}: ${buttonEvent}`);
+  }
+
+  // *** DISCONNECT HARDWARE DEVICES - MOBILE ***
+  // Idempotently disconnects button, camera, or all devices owned by the user.
+  async disconnectDevices(
+    userId: string | undefined,
+    target: DisconnectDeviceTarget = DisconnectDeviceTarget.ALL,
+    deviceId?: string,
+  ): Promise<DisconnectDeviceResult> {
+    const normalizedUserId = userId?.trim();
+
+    if (!normalizedUserId) {
+      throw new UnprocessableEntityException(
+        'We could not verify your account. Please log in again.',
+      );
+    }
+
+    let devicesToProcess: Device[] = [];
+
+    if (deviceId?.trim()) {
+      const normalizedDeviceId = DeviceId.create(deviceId).toString();
+      const device = await this.deviceRepository.findDeviceById(normalizedDeviceId);
+
+      if (!device) {
+        throw new NotFoundException('Device not found');
+      }
+
+      if (device.getAssignedUserId() !== normalizedUserId) {
+        throw new ForbiddenException('This device belongs to another account');
+      }
+
+      const isButton = device.getDeviceType() === DeviceType.BUTTON;
+      const isCamera = device.getDeviceType() === DeviceType.CAMERA;
+
+      if (target === DisconnectDeviceTarget.BUTTON && !isButton) {
+        throw new BadRequestException(`Device ${normalizedDeviceId} is not a button`);
+      }
+
+      if (target === DisconnectDeviceTarget.CAMERA && !isCamera) {
+        throw new BadRequestException(`Device ${normalizedDeviceId} is not a camera`);
+      }
+
+      devicesToProcess = [device];
+    } else {
+      const userDevices = await this.deviceRepository.findDevicesByAssignedUser(normalizedUserId);
+
+      if (target === DisconnectDeviceTarget.BUTTON) {
+        devicesToProcess = userDevices.filter((d) => d.getDeviceType() === DeviceType.BUTTON);
+      } else if (target === DisconnectDeviceTarget.CAMERA) {
+        devicesToProcess = userDevices.filter((d) => d.getDeviceType() === DeviceType.CAMERA);
+      } else {
+        devicesToProcess = userDevices;
+      }
+    }
+
+    const now = Date.now();
+    const disconnectedIds: string[] = [];
+
+    for (const device of devicesToProcess) {
+      const id = device.getDeviceId();
+      let wasConnected = false;
+
+      if (device.isPhone()) {
+        wasConnected = this.isPhoneOnline(device, now) || !!device.getActiveSessionId();
+        if (device.getActiveSessionId()) {
+          await this.phoneCameraService.endSession(
+            normalizedUserId,
+            id,
+            device.getActiveSessionId()!,
+          );
+        } else if (device.isConnected()) {
+          await this.deviceRepository.disconnectDevice(id);
+        }
+      } else {
+        const lastSeen = device.getLastSeenAt();
+        const isOnline = lastSeen ? now - lastSeen.getTime() <= CAMERA_ONLINE_WINDOW_MS : false;
+        wasConnected = !!device.getStreamUrl() || isOnline || device.isConnected();
+        await this.deviceRepository.disconnectDevice(id);
+      }
+
+      if (wasConnected) {
+        disconnectedIds.push(id);
+      }
+
+      this.logger.info(
+        {
+          event: DEVICE_EVENTS.DEVICE_DISCONNECTED,
+          deviceId: id,
+          deviceType: device.getDeviceType(),
+        },
+        DEVICE_MESSAGES.DEVICE_DISCONNECTED_MESSAGE(id),
+      );
+    }
+
+    return {
+      disconnected: disconnectedIds,
+      devices: devicesToProcess.map((d) => ({
+        device_id: d.getDeviceId(),
+        device_type: d.getDeviceType(),
+        status: 'disconnected',
+      })),
+    };
   }
 }

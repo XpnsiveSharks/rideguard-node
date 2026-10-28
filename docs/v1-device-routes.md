@@ -22,6 +22,7 @@ http://localhost:5565/v1
 | `POST` | `/v1/devices/:device_id/ably-token` | ESP32 button | Device secret bearer token | Issue a short-lived Ably publisher token. |
 | `PATCH` | `/v1/devices/:device_id/stream-url` | Camera device | **Public** | Save the camera stream URL. |
 | `GET` | `/v1/devices/cameras` | Mobile app | Firebase ID token | List the user's cameras. |
+| `POST` | `/v1/devices/disconnect` | Mobile app | Firebase ID token | Disconnect button, camera, or all hardware. |
 | `GET` | `/v1/devices/:device_id/cameras` | model-api | Service key | List cameras paired with a button. |
 | `POST` | `/v1/devices/button-event/:device_id/:button_event` | Hardware device | **Public** | Receive a button event. |
 | `POST` | `/v1/devices/phone` | Mobile app | Firebase ID token | Create or return this installation's phone camera. |
@@ -391,6 +392,73 @@ Returns the signed-in user's cameras. Each item includes `device_id`,
 `source` (`esp32` or `phone`), `stream_url`, `online`, and `last_seen_at`.
 Phone cameras are online only while a session is active and model-api has
 reported the stream within 45 seconds.
+
+### POST /v1/devices/disconnect
+
+**Consumer: Mobile app.**
+
+Disconnects physical buttons, cameras (ESP32 and phone cameras), or all hardware
+peripherals assigned to the authenticated rider.
+
+#### Request
+
+```http
+POST /v1/devices/disconnect?device=all
+Authorization: Bearer <firebase-id-token>
+```
+
+| Parameter   | In         | Type   | Required | Notes |
+| ----------- | ---------- | ------ | -------- | ----- |
+| `device`    | Query/Body | string | No       | Optional target device type: `button`, `camera`, or `all` (default: `all`). |
+| `device_id` | Query/Body | string | No       | Optional canonical ID of a specific device to disconnect (e.g., `CAM-482-QLZ` or `BUT-123-ABC`). |
+
+#### Teardown & Cleanup Behavior
+
+- **ESP32 Camera:** Clears stored `streamUrl` and `lastSeenAt`, marking `online: false`.
+- **Phone Camera:** Ends any active upload session (`endedAt: now`, `endReason: "stopped"`), revoking the session token, and resets `connected: false` and `activeSessionId: null`.
+- **ESP32 Button:** Sets `connected: false` and updates `updatedAt`.
+- **Idempotency:** Calling disconnect when a device is already disconnected is a safe no-op; it returns `200 OK` with the current state and an empty `disconnected` list.
+
+#### Success Response
+
+Status `200 OK`:
+
+```json
+{
+  "success": true,
+  "message": "Request completed successfully",
+  "data": {
+    "disconnected": [
+      "BUT-123-ABC",
+      "CAM-482-QLZ"
+    ],
+    "devices": [
+      {
+        "device_id": "BUT-123-ABC",
+        "device_type": "button",
+        "status": "disconnected"
+      },
+      {
+        "device_id": "CAM-482-QLZ",
+        "device_type": "camera",
+        "status": "disconnected"
+      }
+    ]
+  },
+  "timestamp": "2026-10-26T12:00:00.000Z"
+}
+```
+
+#### Errors
+
+| Status | Reason |
+| ------ | ------ |
+| `400`  | Invalid `device` query parameter (must be `button`, `camera`, or `all`), or `device_id` type mismatch. |
+| `401`  | Missing or invalid Firebase ID bearer token. |
+| `403`  | Specified `device_id` belongs to another user account. |
+| `404`  | Specified `device_id` not found. |
+| `422`  | Verified token did not provide a valid user ID. |
+| `429`  | Request exceeded global throttle limit. |
 
 ### GET /v1/devices/:device_id/cameras
 
