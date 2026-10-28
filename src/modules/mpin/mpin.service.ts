@@ -6,7 +6,6 @@ import {
   Injectable,
   HttpException,
   HttpStatus,
-  ServiceUnavailableException,
   Optional,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -42,8 +41,6 @@ import {
 import type { MpinStatusContextDto } from './mpin.dto';
 
 const scrypt = promisify(scryptCallback);
-
-type Purpose = 'change-proof' | 'change-code' | 'recovery';
 
 type Account = {
   pinHash?: string;
@@ -87,33 +84,6 @@ export const MPIN_EMAIL_SENDER = Symbol('MPIN_EMAIL_SENDER');
 export interface MpinEmailSender {
   sendCode(to: string, code: string, purpose: 'change' | 'recovery'): Promise<void>;
   sendEmailLink?(to: string, link: string, purpose: 'change' | 'recovery'): Promise<void>;
-}
-
-@Injectable()
-export class FirebaseMpinEmailSender implements MpinEmailSender {
-  constructor(@Inject(FIREBASE_FIRESTORE) private readonly firestore: Firestore) {}
-
-  async sendCode(to: string, code: string, purpose: 'change' | 'recovery'): Promise<void> {
-    await this.firestore.collection('mail').add({
-      to,
-      message: {
-        subject: `Your RideGuard MPIN ${purpose === 'change' ? 'Change' : 'Recovery'} Code`,
-        text: `Your RideGuard MPIN verification code is ${code}. Valid for 10 minutes.`,
-      },
-      createdAt: FieldValue.serverTimestamp(),
-    });
-  }
-
-  async sendEmailLink(to: string, link: string, purpose: 'change' | 'recovery'): Promise<void> {
-    await this.firestore.collection('mail').add({
-      to,
-      message: {
-        subject: `RideGuard MPIN ${purpose === 'change' ? 'Change' : 'Recovery'} Link`,
-        text: `Click the link below to verify and update your RideGuard MPIN:\n\n${link}\n\nThis link expires in 15 minutes.`,
-      },
-      createdAt: FieldValue.serverTimestamp(),
-    });
-  }
 }
 
 @Injectable()
@@ -653,11 +623,5 @@ export class MpinService {
   private mask(email: string) {
     const [name, domain] = email.split('@');
     return `${name.slice(0, 1)}***@${domain}`;
-  }
-}
-
-export class MissingMpinEmailSender implements MpinEmailSender {
-  sendCode(): Promise<void> {
-    return Promise.reject(new ServiceUnavailableException('MPIN email delivery is not configured'));
   }
 }

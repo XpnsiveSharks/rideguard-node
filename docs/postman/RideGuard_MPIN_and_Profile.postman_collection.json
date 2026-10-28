@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "rideguard-mpin-profile-v1",
     "name": "RideGuard MPIN and Profile Updates",
-    "description": "Verified v1 Profile update and MPIN routes for RideGuard backend.",
+    "description": "Verified v1 Profile update and MPIN routes for RideGuard backend. Email delivery is handled by Nodemailer via SMTP.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -256,7 +256,7 @@
               "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/mpin/change/code",
-            "description": "Consumes change-proof grant and sends 6-digit code. Returns 503 if email delivery not configured."
+            "description": "Consumes change-proof grant and sends a 6-digit code via Nodemailer. Returns 503 if SMTP env vars (SMTP_HOST, SMTP_USER, SMTP_PASS) are missing on the server."
           },
           "event": [
             {
@@ -343,7 +343,7 @@
             "method": "POST",
             "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
             "url": "{{baseUrl}}/mpin/recovery/code",
-            "description": "Dispatches recovery code to account's registered email."
+            "description": "Dispatches recovery code to account's registered email via Nodemailer."
           },
           "event": [
             {
@@ -371,7 +371,8 @@
               "raw": "{\n  \"challengeId\": \"{{recoveryChallengeId}}\"\n}",
               "options": { "raw": { "language": "json" } }
             },
-            "url": "{{baseUrl}}/mpin/recovery/code/resend"
+            "url": "{{baseUrl}}/mpin/recovery/code/resend",
+            "description": "Enforces 60-second cooldown. Returns 429 if called within 60s."
           }
         },
         {
@@ -385,7 +386,8 @@
               "raw": "{\n  \"challengeId\": \"{{recoveryChallengeId}}\",\n  \"code\": \"123456\"\n}",
               "options": { "raw": { "language": "json" } }
             },
-            "url": "{{baseUrl}}/mpin/recovery/code/verify"
+            "url": "{{baseUrl}}/mpin/recovery/code/verify",
+            "description": "Verifies 6-digit code and issues single-use reset grant."
           },
           "event": [
             {
@@ -413,7 +415,8 @@
               "raw": "{\n  \"authorization\": \"{{resetGrantToken}}\",\n  \"pin\": \"9999\"\n}",
               "options": { "raw": { "language": "json" } }
             },
-            "url": "{{baseUrl}}/mpin/recovery/reset"
+            "url": "{{baseUrl}}/mpin/recovery/reset",
+            "description": "Consumes reset grant and replaces PIN."
           }
         }
       ]
@@ -436,7 +439,7 @@
               "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/mpin/change/email-link",
-            "description": "Dispatches a single-use action link to user email for MPIN change."
+            "description": "Dispatches a single-use action link via Nodemailer (10-minute expiry). The token is NOT in the response — copy it from the received email into the `emailLinkToken` collection variable before running 'Verify Email Link & Update MPIN'."
           }
         },
         {
@@ -450,7 +453,7 @@
             ],
             "body": { "mode": "raw", "raw": "{}", "options": { "raw": { "language": "json" } } },
             "url": "{{baseUrl}}/mpin/recovery/email-link",
-            "description": "Dispatches a single-use action link to user email for MPIN recovery."
+            "description": "Dispatches a single-use action link via Nodemailer (10-minute expiry). The token is NOT in the response — copy it from the received email into the `emailLinkToken` collection variable before running 'Verify Email Link & Update MPIN'."
           }
         },
         {
@@ -483,7 +486,8 @@
           "request": {
             "method": "GET",
             "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
-            "url": "{{baseUrl}}/auth/onboarding"
+            "url": "{{baseUrl}}/auth/onboarding",
+            "description": "Retrieves onboarding progress for the authenticated user."
           }
         },
         {
@@ -497,7 +501,8 @@
               "raw": "{\n  \"step\": \"vehicle-info\",\n  \"completedSteps\": [\"profile\"]\n}",
               "options": { "raw": { "language": "json" } }
             },
-            "url": "{{baseUrl}}/auth/onboarding"
+            "url": "{{baseUrl}}/auth/onboarding",
+            "description": "Persists onboarding progress."
           }
         },
         {
@@ -520,7 +525,8 @@
               "raw": "{\n  \"deviceId\": \"{{deviceId}}\",\n  \"publicKey\": \"{{phonePublicKey}}\",\n  \"algorithm\": \"ed25519\"\n}",
               "options": { "raw": { "language": "json" } }
             },
-            "url": "{{baseUrl}}/auth/phone/enroll-key"
+            "url": "{{baseUrl}}/auth/phone/enroll-key",
+            "description": "Registers a cryptographic device key for phone-based authentication."
           }
         },
         {
@@ -533,7 +539,8 @@
               "raw": "{\n  \"deviceId\": \"{{deviceId}}\"\n}",
               "options": { "raw": { "language": "json" } }
             },
-            "url": "{{baseUrl}}/auth/phone/challenge"
+            "url": "{{baseUrl}}/auth/phone/challenge",
+            "description": "Issues a cryptographic challenge nonce for signature verification."
           }
         },
         {
@@ -546,7 +553,8 @@
               "raw": "{\n  \"deviceId\": \"{{deviceId}}\",\n  \"challengeId\": \"{{phoneChallengeId}}\",\n  \"signature\": \"{{phoneSignature}}\"\n}",
               "options": { "raw": { "language": "json" } }
             },
-            "url": "{{baseUrl}}/auth/phone/verify-signature"
+            "url": "{{baseUrl}}/auth/phone/verify-signature",
+            "description": "Verifies the phone signature against the issued challenge."
           }
         },
         {
@@ -560,7 +568,8 @@
               "raw": "{\n  \"deviceId\": \"{{deviceId}}\"\n}",
               "options": { "raw": { "language": "json" } }
             },
-            "url": "{{baseUrl}}/auth/phone/revoke-key"
+            "url": "{{baseUrl}}/auth/phone/revoke-key",
+            "description": "Revokes the enrolled phone key for the given device."
           }
         },
         {
@@ -569,7 +578,8 @@
             "method": "POST",
             "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
             "header": [{ "key": "X-Device-Id", "value": "{{deviceId}}" }],
-            "url": "{{baseUrl}}/auth/logout"
+            "url": "{{baseUrl}}/auth/logout",
+            "description": "Revokes the session and all active device unlock authorizations."
           }
         }
       ]
