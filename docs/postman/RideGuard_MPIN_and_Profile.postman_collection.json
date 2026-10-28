@@ -12,7 +12,12 @@
     { "key": "changeChallengeId", "value": "" },
     { "key": "changeGrantToken", "value": "" },
     { "key": "recoveryChallengeId", "value": "" },
-    { "key": "resetGrantToken", "value": "" }
+    { "key": "resetGrantToken", "value": "" },
+    { "key": "deviceId", "value": "mobile-phone-01" },
+    { "key": "emailLinkToken", "value": "" },
+    { "key": "phoneChallengeId", "value": "" },
+    { "key": "phonePublicKey", "value": "" },
+    { "key": "phoneSignature", "value": "" }
   ],
   "item": [
     {
@@ -409,6 +414,162 @@
               "options": { "raw": { "language": "json" } }
             },
             "url": "{{baseUrl}}/mpin/recovery/reset"
+          }
+        }
+      ]
+    },
+    {
+      "name": "MPIN Email-Link & Security Controls",
+      "item": [
+        {
+          "name": "1. Request Change MPIN Email Link",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Device-Id", "value": "{{deviceId}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"authorization\": \"{{changeProofToken}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/mpin/change/email-link",
+            "description": "Dispatches a single-use action link to user email for MPIN change."
+          }
+        },
+        {
+          "name": "2. Request Recovery MPIN Email Link",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "X-Device-Id", "value": "{{deviceId}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}", "options": { "raw": { "language": "json" } } },
+            "url": "{{baseUrl}}/mpin/recovery/email-link",
+            "description": "Dispatches a single-use action link to user email for MPIN recovery."
+          }
+        },
+        {
+          "name": "3. Verify Email Link & Update MPIN",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"{{emailLinkToken}}\",\n  \"pin\": \"5678\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/mpin/email-link/verify-and-change",
+            "description": "Consumes the email link token, prevents PIN reuse, and updates MPIN atomically."
+          }
+        },
+        {
+          "name": "4. Explicit Device Lock",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "X-Device-Id", "value": "{{deviceId}}" }],
+            "url": "{{baseUrl}}/mpin/lock",
+            "description": "Revokes active unlock authorization for current device."
+          }
+        },
+        {
+          "name": "5. Get Onboarding Progress",
+          "request": {
+            "method": "GET",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "url": "{{baseUrl}}/auth/onboarding"
+          }
+        },
+        {
+          "name": "6. Update Onboarding Progress",
+          "request": {
+            "method": "PATCH",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"step\": \"vehicle-info\",\n  \"completedSteps\": [\"profile\"]\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/auth/onboarding"
+          }
+        },
+        {
+          "name": "7. Complete Onboarding (Requires MPIN)",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "url": "{{baseUrl}}/auth/onboarding/complete",
+            "description": "Requires MPIN configured before completion."
+          }
+        },
+        {
+          "name": "8. Phone Auth: Enroll Key",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\",\n  \"publicKey\": \"{{phonePublicKey}}\",\n  \"algorithm\": \"ed25519\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/auth/phone/enroll-key"
+          }
+        },
+        {
+          "name": "9. Phone Auth: Issue Challenge",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/auth/phone/challenge"
+          }
+        },
+        {
+          "name": "10. Phone Auth: Verify Signature",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\",\n  \"challengeId\": \"{{phoneChallengeId}}\",\n  \"signature\": \"{{phoneSignature}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/auth/phone/verify-signature"
+          }
+        },
+        {
+          "name": "11. Phone Auth: Revoke Key",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deviceId\": \"{{deviceId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": "{{baseUrl}}/auth/phone/revoke-key"
+          }
+        },
+        {
+          "name": "12. Logout (Revoke Unlocks)",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }] },
+            "header": [{ "key": "X-Device-Id", "value": "{{deviceId}}" }],
+            "url": "{{baseUrl}}/auth/logout"
           }
         }
       ]

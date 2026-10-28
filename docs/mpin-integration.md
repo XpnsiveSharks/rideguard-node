@@ -38,12 +38,32 @@ This document defines the backend implementation, security controls, and fronten
 - **Invalidation**: Resending a code marks previous challenges as `replaced: true`.
 - **Attempt Limit**: Maximum 5 attempts per challenge (`MPIN_CODE_ATTEMPT_LIMIT = 5`). Exceeding this blocks further attempts with HTTP `429`.
 
-### Purpose-Bound Single-Use Grants
-- Issued upon successful verification of current PIN or email OTP code.
+### Purpose-Bound Single-Use Grants & Email-Link Flow
+- Issued upon successful verification of current PIN, email OTP code, or Firebase action link.
 - Cryptographically strong 32-byte tokens (`base64url`).
 - Stored as SHA-256 digests in `mpinGrants` with explicit `purpose` tags (`change-proof`, `change`, `reset`).
-- Consumed atomically upon use (`used: true`); reused tokens are rejected with `401 Unauthorized`.
+- Consumed atomically using Firestore transactions (`used: true`); reused tokens are rejected with `401 Unauthorized` (`INVALID_GRANT`).
 - **Strict Isolation**: A `reset` grant cannot be used to execute `change`, and a `change-proof` grant cannot be used to save a PIN directly.
+- **Firebase Email-Link Flow**:
+  1. Trigger: `POST /v1/mpin/change/email-link` or `POST /v1/mpin/recovery/email-link`.
+  2. Backend generates a 15-minute, single-use token and dispatches the standard Universal / App Link (or fallback custom scheme):
+     `https://app.rideguard.ph/mpin?token=<token>&purpose=<change|recovery>` (configurable via `MPIN_DEEP_LINK_BASE_URL`)
+     *Note: Replaces deprecated Firebase Dynamic Links (`*.page.link`) with modern Android App Links / iOS Universal Links.*
+  3. App opens via deep link -> user enters new MPIN.
+  4. App calls `POST /v1/mpin/email-link/verify-and-change` with `{ "token": "...", "pin": "..." }`.
+  5. Backend updates MPIN, prevents reuse of current or recent PINs, and revokes active unlocks.
+
+### Inactivity Policy & Device-Bound Authorizations
+- Device unlock sessions are stored in `mpinUnlocks/{uid}_{deviceId}` with `lastActivityAt`.
+- **Inactivity Timeout**: 5 minutes (`MPIN_INACTIVITY_TIMEOUT_MS = 300,000 ms`).
+- Active unlocks are checked against client inactivity (`inactiveForMs >= 300,000`). If inactive, authorization expires immediately and `requiresUnlock: true` is returned.
+- **PIN Reuse & Concurrency Prevention**:
+  - MPIN changes verify against active PIN and historical PINs (last 3). Reusing returns `400 Bad Request` with `PIN_REUSE_FORBIDDEN`.
+  - Concurrent change attempts acquire a mutex lock preventing race conditions.
+- **Revocation Trigger Points**:
+  - MPIN change or reset (invalidates all sessions for account).
+  - Explicit logout (`POST /v1/auth/logout`) or lock (`POST /v1/mpin/lock`).
+  - Device disconnection / unpairing (`POST /v1/devices/disconnect`).
 
 ### Emergency Access Boundaries
 - By default, `emergencyAccessAllowed` is `false` and `emergencyAlertIds` is `[]`.
@@ -67,6 +87,17 @@ This document defines the backend implementation, security controls, and fronten
 | `/v1/mpin/recovery/code/resend` | `POST` | Resend recovery code after cooldown | **Implemented** | PASS (`test-mpin.cjs`, Jest) |
 | `/v1/mpin/recovery/code/verify` | `POST` | Verify recovery code & issue `reset` grant | **Implemented** | PASS (`test-mpin.cjs`, Jest) |
 | `/v1/mpin/recovery/reset` | `POST` | Reset PIN using verified `reset` grant | **Implemented** | PASS (`test-mpin.cjs`, Jest) |
+| `/v1/mpin/change/email-link` | `POST` | Dispatch Firebase action link for MPIN change | **Implemented** | PASS (Jest) |
+| `/v1/mpin/recovery/email-link` | `POST` | Dispatch Firebase action link for MPIN recovery | **Implemented** | PASS (Jest) |
+| `/v1/mpin/email-link/verify-and-change` | `POST` | Update MPIN using verified action link grant | **Implemented** | PASS (Jest) |
+| `/v1/mpin/lock` | `POST` | Explicitly revoke active device unlock | **Implemented** | PASS (Jest) |
+| `/v1/auth/onboarding` | `GET`/`PATCH` | Retrieve and persist onboarding progress by UID | **Implemented** | PASS (Jest) |
+| `/v1/auth/onboarding/complete` | `POST` | Finalize onboarding (requires MPIN setup) | **Implemented** | PASS (Jest) |
+| `/v1/auth/phone/enroll-key` | `POST` | Register cryptographic device key | **Implemented** | PASS (Jest) |
+| `/v1/auth/phone/challenge` | `POST` | Issue cryptographic challenge nonce | **Implemented** | PASS (Jest) |
+| `/v1/auth/phone/verify-signature` | `POST` | Verify phone signature against challenge | **Implemented** | PASS (Jest) |
+| `/v1/auth/phone/revoke-key` | `POST` | Revoke enrolled phone key | **Implemented** | PASS (Jest) |
+| `/v1/auth/logout` | `POST` | Revoke session & device unlock authorizations | **Implemented** | PASS (Jest) |
 
 ---
 

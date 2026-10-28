@@ -7,8 +7,10 @@ import {
   HttpException,
   HttpStatus,
   ServiceUnavailableException,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   createHash,
   randomBytes,
@@ -29,8 +31,12 @@ import {
   MPIN_CODE_MS,
   MPIN_GRANT_MS,
   MPIN_GRANTS,
+  MPIN_DEFAULT_DEEP_LINK_BASE_URL,
+  MPIN_HISTORY_LIMIT,
+  MPIN_INACTIVITY_TIMEOUT_MS,
   MPIN_LOCK_MS,
   MPIN_RESEND_MS,
+  MPIN_UNLOCKS,
   MPIN_UNLOCK_MS,
 } from './mpin.constants';
 import type { MpinStatusContextDto } from './mpin.dto';
@@ -41,9 +47,11 @@ type Purpose = 'change-proof' | 'change-code' | 'recovery';
 
 type Account = {
   pinHash?: string;
+  pinHistory?: string[];
   failedAttempts?: number;
   lockedUntil?: number;
   unlockExpiresAt?: number;
+  changeLockUntil?: number;
 };
 
 type Challenge = {
@@ -63,11 +71,49 @@ type Grant = {
   purpose: 'change-proof' | 'change' | 'reset';
   expiresAt: number;
   used?: boolean;
+  deviceId?: string;
+};
+
+type MpinUnlockSession = {
+  uid: string;
+  deviceId: string;
+  tokenHash?: string;
+  expiresAt: number;
+  lastActivityAt: number;
+  revoked?: boolean;
 };
 
 export const MPIN_EMAIL_SENDER = Symbol('MPIN_EMAIL_SENDER');
 export interface MpinEmailSender {
   sendCode(to: string, code: string, purpose: 'change' | 'recovery'): Promise<void>;
+  sendEmailLink?(to: string, link: string, purpose: 'change' | 'recovery'): Promise<void>;
+}
+
+@Injectable()
+export class FirebaseMpinEmailSender implements MpinEmailSender {
+  constructor(@Inject(FIREBASE_FIRESTORE) private readonly firestore: Firestore) {}
+
+  async sendCode(to: string, code: string, purpose: 'change' | 'recovery'): Promise<void> {
+    await this.firestore.collection('mail').add({
+      to,
+      message: {
+        subject: `Your RideGuard MPIN ${purpose === 'change' ? 'Change' : 'Recovery'} Code`,
+        text: `Your RideGuard MPIN verification code is ${code}. Valid for 10 minutes.`,
+      },
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  }
+
+  async sendEmailLink(to: string, link: string, purpose: 'change' | 'recovery'): Promise<void> {
+    await this.firestore.collection('mail').add({
+      to,
+      message: {
+        subject: `RideGuard MPIN ${purpose === 'change' ? 'Change' : 'Recovery'} Link`,
+        text: `Click the link below to verify and update your RideGuard MPIN:\n\n${link}\n\nThis link expires in 15 minutes.`,
+      },
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  }
 }
 
 @Injectable()
@@ -76,9 +122,10 @@ export class MpinService {
     @Inject(FIREBASE_FIRESTORE) private readonly firestore: Firestore,
     @Inject(FIREBASE_AUTH) private readonly auth: Auth,
     @Inject(MPIN_EMAIL_SENDER) private readonly emailSender: MpinEmailSender,
+    @Optional() private readonly config?: ConfigService,
   ) {}
 
-  async status(uid: string, _context?: MpinStatusContextDto) {
+  async status(uid: string, context?: MpinStatusContextDto, deviceId?: string) {
     const account = await this.account(uid);
     const now = Date.now();
     const isLocked = (account.lockedUntil ?? 0) > now;
@@ -88,14 +135,28 @@ export class MpinService {
         ? MPIN_ATTEMPT_LIMIT
         : Math.max(0, MPIN_ATTEMPT_LIMIT - (account.failedAttempts ?? 0));
 
+    let isUnlocked = !!account.pinHash && (account.unlockExpiresAt ?? 0) > now;
+    if (isUnlocked && deviceId) {
+      const unlockSnap = await this.firestore.collection(MPIN_UNLOCKS).doc(`${uid}_${deviceId}`).get();
+      if (unlockSnap.exists) {
+        const unlock = unlockSnap.data() as MpinUnlockSession;
+        if (unlock.revoked || unlock.expiresAt <= now) {
+          isUnlocked = false;
+        } else if (context?.inactiveForMs && context.inactiveForMs >= MPIN_INACTIVITY_TIMEOUT_MS) {
+          isUnlocked = false;
+        }
+      }
+    } else if (isUnlocked && context?.inactiveForMs && context.inactiveForMs >= MPIN_INACTIVITY_TIMEOUT_MS) {
+      isUnlocked = false;
+    }
+
     return {
       configured: !!account.pinHash,
-      requiresUnlock:
-        !!account.pinHash && (!account.unlockExpiresAt || account.unlockExpiresAt <= now),
+      requiresUnlock: !!account.pinHash && !isUnlocked,
       locked: isLocked,
       ...(isLocked && account.lockedUntil ? { lockedUntil: account.lockedUntil } : {}),
       remainingAttempts,
-      ...(account.unlockExpiresAt ? { unlockExpiresAt: account.unlockExpiresAt } : {}),
+      ...(account.unlockExpiresAt && isUnlocked ? { unlockExpiresAt: account.unlockExpiresAt } : {}),
       serverTime: now,
       emergencyAccessAllowed: false,
       emergencyAlertIds: [],
@@ -115,7 +176,7 @@ export class MpinService {
     return { success: true as const };
   }
 
-  async unlock(uid: string, pin: string) {
+  async unlock(uid: string, pin: string, deviceId?: string) {
     const ref = this.firestore.collection(MPIN_ACCOUNTS).doc(uid);
     const snapshot = await ref.get();
     const account = (snapshot.data() ?? {}) as Account;
@@ -140,14 +201,34 @@ export class MpinService {
       );
       throw new UnauthorizedException('Incorrect MPIN');
     }
+
+    const unlockExpiresAt = now + MPIN_UNLOCK_MS;
     await ref.set(
       {
         failedAttempts: 0,
         lockedUntil: FieldValue.delete(),
-        unlockExpiresAt: now + MPIN_UNLOCK_MS,
+        unlockExpiresAt,
       },
       { merge: true },
     );
+
+    if (deviceId) {
+      const unlockToken = randomBytes(24).toString('base64url');
+      await this.firestore
+        .collection(MPIN_UNLOCKS)
+        .doc(`${uid}_${deviceId}`)
+        .set({
+          uid,
+          deviceId,
+          tokenHash: this.digest(unlockToken),
+          expiresAt: unlockExpiresAt,
+          lastActivityAt: now,
+          revoked: false,
+        });
+
+      return { success: true as const, unlockToken, expiresAt: unlockExpiresAt };
+    }
+
     return { success: true as const };
   }
 
@@ -195,6 +276,56 @@ export class MpinService {
     return { success: true as const };
   }
 
+  async requestChangeEmailLink(uid: string, proof?: string, deviceId?: string) {
+    if (proof) {
+      await this.consumeGrant(uid, proof, 'change-proof', true);
+    }
+    return this.issueEmailLink(uid, 'change', deviceId);
+  }
+
+  async requestRecoveryEmailLink(uid: string, deviceId?: string) {
+    return this.issueEmailLink(uid, 'recovery', deviceId);
+  }
+
+  async verifyEmailLinkAndChange(uid: string, token: string, pin: string) {
+    try {
+      await this.consumeGrant(uid, token, 'change', true);
+    } catch {
+      await this.consumeGrant(uid, token, 'reset', true);
+    }
+    await this.replacePin(uid, pin);
+    return { success: true as const };
+  }
+
+  private async issueEmailLink(uid: string, purpose: 'change' | 'recovery', deviceId?: string) {
+    const user = await this.auth.getUser(uid);
+    if (!user.email || !user.emailVerified) {
+      throw new ForbiddenException({
+        code: 'EMAIL_UNVERIFIED',
+        message: 'Registered email verification is required',
+      });
+    }
+    const grantPurpose: Grant['purpose'] = purpose === 'change' ? 'change' : 'reset';
+    const grant = await this.grant(uid, grantPurpose, MPIN_GRANT_MS, deviceId);
+    const baseUrl =
+      this.config?.get<string>('MPIN_DEEP_LINK_BASE_URL') ||
+      process.env.MPIN_DEEP_LINK_BASE_URL ||
+      MPIN_DEFAULT_DEEP_LINK_BASE_URL;
+    const deepLink = `${baseUrl}?token=${encodeURIComponent(grant.token)}&purpose=${purpose}`;
+
+    if (this.emailSender.sendEmailLink) {
+      await this.emailSender.sendEmailLink(user.email, deepLink, purpose);
+    } else {
+      await this.emailSender.sendCode(user.email, deepLink, purpose);
+    }
+
+    return {
+      maskedDestination: this.mask(user.email),
+      expiresAt: grant.expiresAt,
+      serverTime: Date.now(),
+    };
+  }
+
   private async verifyCurrent(uid: string, pin: string) {
     const ref = this.firestore.collection(MPIN_ACCOUNTS).doc(uid);
     const snapshot = await ref.get();
@@ -230,19 +361,69 @@ export class MpinService {
   }
 
   private async replacePin(uid: string, pin: string) {
-    await this.firestore
-      .collection(MPIN_ACCOUNTS)
-      .doc(uid)
-      .set(
+    const ref = this.firestore.collection(MPIN_ACCOUNTS).doc(uid);
+    const now = Date.now();
+
+    const runTx = typeof this.firestore.runTransaction === 'function'
+      ? (cb: (tx: any) => Promise<any>) => this.firestore.runTransaction(cb)
+      : async (cb: (tx: any) => Promise<any>) => {
+          const fakeTx = {
+            get: (r: any) => r.get(),
+            set: (r: any, d: any, o: any) => r.set(d, o),
+          };
+          return cb(fakeTx);
+        };
+
+    await runTx(async (transaction: any) => {
+      const snapshot = await transaction.get(ref);
+      const account = (snapshot.data() ?? {}) as Account;
+
+      if (account.changeLockUntil && account.changeLockUntil > now) {
+        throw new ConflictException({
+          code: 'CONCURRENT_CHANGE_IN_PROGRESS',
+          message: 'An MPIN update is already in progress. Please wait.',
+        });
+      }
+
+      if (account.pinHash && (await this.matches(pin, account.pinHash))) {
+        throw new BadRequestException({
+          code: 'PIN_REUSE_FORBIDDEN',
+          message: 'New MPIN cannot be the same as your existing MPIN',
+        });
+      }
+
+      if (account.pinHistory?.length) {
+        for (const oldHash of account.pinHistory) {
+          if (await this.matches(pin, oldHash)) {
+            throw new BadRequestException({
+              code: 'PIN_REUSE_FORBIDDEN',
+              message: 'New MPIN cannot be one of your recently used MPINs',
+            });
+          }
+        }
+      }
+
+      const newHash = await this.hash(pin);
+      const pinHistory = [account.pinHash, ...(account.pinHistory ?? [])]
+        .filter((h): h is string => Boolean(h))
+        .slice(0, MPIN_HISTORY_LIMIT);
+
+      transaction.set(
+        ref,
         {
-          pinHash: await this.hash(pin),
+          pinHash: newHash,
+          pinHistory,
           failedAttempts: 0,
           lockedUntil: FieldValue.delete(),
           unlockExpiresAt: FieldValue.delete(),
+          changeLockUntil: FieldValue.delete(),
           updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true },
       );
+    });
+
+    await this.revokeAllUnlocks(uid);
   }
 
   private async issueChallenge(
@@ -334,7 +515,12 @@ export class MpinService {
     await ref.set({ used: true }, { merge: true });
   }
 
-  private async grant(uid: string, purpose: Grant['purpose'], lifetime: number) {
+  private async grant(
+    uid: string,
+    purpose: Grant['purpose'],
+    lifetime: number,
+    deviceId?: string,
+  ) {
     const token = randomBytes(32).toString('base64url');
     await this.firestore
       .collection(MPIN_GRANTS)
@@ -344,6 +530,7 @@ export class MpinService {
         purpose,
         expiresAt: Date.now() + lifetime,
         used: false,
+        ...(deviceId ? { deviceId } : {}),
       } satisfies Grant);
     return { token, expiresAt: Date.now() + lifetime, serverTime: Date.now() };
   }
@@ -355,21 +542,86 @@ export class MpinService {
     consume: boolean,
   ) {
     const ref = this.firestore.collection(MPIN_GRANTS).doc(this.digest(token));
-    const snapshot = await ref.get();
-    const grant = snapshot.data() as Grant | undefined;
-    if (
-      !snapshot.exists ||
-      !grant ||
-      grant.uid !== uid ||
-      grant.purpose !== purpose ||
-      grant.used ||
-      grant.expiresAt <= Date.now()
-    ) {
-      throw new UnauthorizedException('Invalid or expired authorization');
+    const runTx = typeof this.firestore.runTransaction === 'function'
+      ? (cb: (tx: any) => Promise<any>) => this.firestore.runTransaction(cb)
+      : async (cb: (tx: any) => Promise<any>) => {
+          const fakeTx = {
+            get: (r: any) => r.get(),
+            set: (r: any, d: any, o: any) => r.set(d, o),
+          };
+          return cb(fakeTx);
+        };
+
+    await runTx(async (transaction: any) => {
+      const snapshot = await transaction.get(ref);
+      const grant = snapshot.data() as Grant | undefined;
+      if (
+        !snapshot.exists ||
+        !grant ||
+        grant.uid !== uid ||
+        grant.purpose !== purpose ||
+        grant.used ||
+        grant.expiresAt <= Date.now()
+      ) {
+        throw new UnauthorizedException({
+          code: 'INVALID_GRANT',
+          message: 'Invalid or expired authorization',
+        });
+      }
+      if (consume) {
+        transaction.set(ref, { used: true }, { merge: true });
+      }
+    });
+  }
+
+  async revokeAllUnlocks(uid: string) {
+    await this.firestore
+      .collection(MPIN_ACCOUNTS)
+      .doc(uid)
+      .set({ unlockExpiresAt: FieldValue.delete() }, { merge: true });
+
+    if (this.firestore.collection(MPIN_UNLOCKS)?.where) {
+      const snaps = await this.firestore.collection(MPIN_UNLOCKS).where('uid', '==', uid).get();
+      if (snaps && snaps.forEach) {
+        snaps.forEach((doc) => {
+          doc.ref.set({ revoked: true, expiresAt: 0 }, { merge: true });
+        });
+      }
     }
-    if (consume) {
-      await ref.set({ used: true }, { merge: true });
+  }
+
+  async revokeDeviceUnlock(uid: string, deviceId?: string) {
+    const target = deviceId || 'default';
+    await this.firestore
+      .collection(MPIN_UNLOCKS)
+      .doc(`${uid}_${target}`)
+      .set({ revoked: true, expiresAt: 0 }, { merge: true });
+  }
+
+  async isUnlocked(uid: string, deviceId?: string, unlockToken?: string): Promise<boolean> {
+    const account = await this.account(uid);
+    if (!account.pinHash) {
+      return true;
     }
+    const now = Date.now();
+    const target = deviceId || 'default';
+    const unlockDoc = await this.firestore.collection(MPIN_UNLOCKS).doc(`${uid}_${target}`).get();
+    if (!unlockDoc.exists) {
+      return !!account.unlockExpiresAt && account.unlockExpiresAt > now;
+    }
+    const unlock = unlockDoc.data() as MpinUnlockSession;
+    if (unlock.revoked || unlock.expiresAt <= now) {
+      return false;
+    }
+    if (unlockToken && unlock.tokenHash && unlock.tokenHash !== this.digest(unlockToken)) {
+      return false;
+    }
+    if (now - (unlock.lastActivityAt ?? now) > MPIN_INACTIVITY_TIMEOUT_MS) {
+      await unlockDoc.ref.set({ revoked: true }, { merge: true });
+      return false;
+    }
+    await unlockDoc.ref.set({ lastActivityAt: now }, { merge: true });
+    return true;
   }
 
   private account(uid: string) {

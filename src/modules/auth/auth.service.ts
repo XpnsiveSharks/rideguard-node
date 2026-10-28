@@ -19,7 +19,19 @@ import type { Rest, TokenRequest } from 'ably';
 import { REALTIME_CHANNELS } from '@/modules/realtime/realtime.constants';
 import { ONE_HOUR_IN_MILLISECONDS } from '@/common/constants/time.constants';
 import { normalizeEmail, normalizeUsername } from './auth.validation';
-import type { ForgotPasswordDto, LoginDto, RegisterDto } from './auth.dto';
+import { randomBytes, verify } from 'node:crypto';
+import type {
+  DeleteAccountDto,
+  EnrollPhoneKeyDto,
+  ForgotPasswordDto,
+  LoginDto,
+  PhoneAuthChallengeDto,
+  RegisterDto,
+  RevokePhoneKeyDto,
+  UpdateOnboardingDto,
+  VerifyPhoneSignatureDto,
+} from './auth.dto';
+import { MPIN_ACCOUNTS } from '@/modules/mpin/mpin.constants';
 import {
   REGISTRATION_PENDING_COLLECTION,
   REGISTRATION_PENDING_TTL_MS,
@@ -161,7 +173,18 @@ export class AuthService {
       throw new UnauthorizedException(GENERIC_LOGIN_ERROR);
     }
     const user = await this.auth.getUser(body.localId);
-    if (!user.emailVerified) throw new UnauthorizedException(GENERIC_LOGIN_ERROR);
+    if (!user.emailVerified) {
+      throw new HttpException(
+        {
+          code: 'ACCOUNT_UNVERIFIED',
+          message: 'Account email is not verified.',
+          email: body.email,
+          uid: body.localId,
+          emailVerified: false,
+        },
+        HttpStatus.FORBIDDEN,
+      );
+    }
     return { uid: body.localId, email: body.email };
   }
 
@@ -332,6 +355,188 @@ export class AuthService {
   }
 
   // *** CREATE ABLY TOKEN REQUEST FOR USER ***
+  // *** ONBOARDING PROGRESS ***
+  async getOnboarding(uid: string) {
+    const snap = await this.firestore.collection('onboarding').doc(uid).get();
+    const mpinAccount = await this.firestore.collection(MPIN_ACCOUNTS).doc(uid).get();
+    const mpinConfigured = !!(mpinAccount.data() as { pinHash?: string } | undefined)?.pinHash;
+
+    if (!snap.exists) {
+      return {
+        uid,
+        step: 'profile',
+        completedSteps: [],
+        completed: false,
+        mpinConfigured,
+      };
+    }
+    const data = (snap.data() ?? {}) as Record<string, any>;
+    return {
+      uid,
+      step: data.step ?? 'profile',
+      completedSteps: data.completedSteps ?? [],
+      completed: !!data.completed,
+      mpinConfigured,
+      ...(data.data ? { data: data.data } : {}),
+    };
+  }
+
+  async updateOnboarding(uid: string, input: UpdateOnboardingDto) {
+    const ref = this.firestore.collection('onboarding').doc(uid);
+    await ref.set(
+      {
+        uid,
+        ...(input.step ? { step: input.step } : {}),
+        ...(input.completedSteps ? { completedSteps: input.completedSteps } : {}),
+        ...(input.data ? { data: input.data } : {}),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    return this.getOnboarding(uid);
+  }
+
+  async completeOnboarding(uid: string) {
+    const mpinAccount = await this.firestore.collection(MPIN_ACCOUNTS).doc(uid).get();
+    const hasPin = !!(mpinAccount.data() as { pinHash?: string } | undefined)?.pinHash;
+    if (!hasPin) {
+      throw new BadRequestException({
+        code: 'MPIN_REQUIRED',
+        message: 'MPIN setup is required before completing onboarding',
+      });
+    }
+
+    const ref = this.firestore.collection('onboarding').doc(uid);
+    await ref.set(
+      {
+        uid,
+        completed: true,
+        completedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    return { success: true, completed: true };
+  }
+
+  // *** PHONE AUTHENTICATION ***
+  async enrollPhoneKey(uid: string, input: EnrollPhoneKeyDto) {
+    const docId = `${uid}_${input.deviceId}`;
+    await this.firestore.collection('phoneAuthKeys').doc(docId).set({
+      uid,
+      deviceId: input.deviceId,
+      publicKey: input.publicKey,
+      algorithm: input.algorithm || 'ed25519',
+      createdAt: Date.now(),
+      revoked: false,
+    });
+    return { success: true, deviceId: input.deviceId };
+  }
+
+  async issuePhoneChallenge(input: PhoneAuthChallengeDto) {
+    const challengeId = randomBytes(16).toString('hex');
+    const nonce = randomBytes(32).toString('base64url');
+    const expiresAt = Date.now() + 5 * 60 * 1000;
+
+    await this.firestore.collection('phoneAuthChallenges').doc(challengeId).set({
+      challengeId,
+      deviceId: input.deviceId,
+      nonce,
+      expiresAt,
+      used: false,
+    });
+
+    return { challengeId, nonce, expiresAt };
+  }
+
+  async verifyPhoneSignature(input: VerifyPhoneSignatureDto) {
+    const challengeRef = this.firestore.collection('phoneAuthChallenges').doc(input.challengeId);
+    const snap = await challengeRef.get();
+    const challenge = snap.data() as
+      | { deviceId?: string; nonce?: string; expiresAt?: number; used?: boolean }
+      | undefined;
+    const now = Date.now();
+
+    if (!snap.exists || !challenge || challenge.used || (challenge.expiresAt ?? 0) <= now) {
+      throw new UnauthorizedException({
+        code: 'INVALID_CHALLENGE',
+        message: 'Invalid or expired phone authentication challenge',
+      });
+    }
+    if (challenge.deviceId !== input.deviceId) {
+      throw new UnauthorizedException({
+        code: 'DEVICE_MISMATCH',
+        message: 'Challenge device does not match',
+      });
+    }
+
+    const keysQuery = await this.firestore
+      .collection('phoneAuthKeys')
+      .where('deviceId', '==', input.deviceId)
+      .where('revoked', '==', false)
+      .limit(1)
+      .get();
+
+    if (keysQuery.empty) {
+      throw new UnauthorizedException({
+        code: 'KEY_NOT_FOUND',
+        message: 'No enrolled device key found or key is revoked',
+      });
+    }
+
+    const keyDoc = keysQuery.docs[0].data() as {
+      publicKey: string;
+      algorithm?: string;
+      uid: string;
+    };
+
+    let isValid = false;
+    try {
+      isValid = verify(
+        null,
+        Buffer.from(challenge.nonce!),
+        keyDoc.publicKey,
+        Buffer.from(input.signature, 'base64'),
+      );
+    } catch {
+      isValid = false;
+    }
+
+    if (!isValid) {
+      throw new UnauthorizedException({
+        code: 'INVALID_SIGNATURE',
+        message: 'Cryptographic phone signature verification failed',
+      });
+    }
+
+    await challengeRef.set({ used: true }, { merge: true });
+    return { verified: true, deviceId: input.deviceId, uid: keyDoc.uid, timestamp: now };
+  }
+
+  async revokePhoneKey(uid: string, input: RevokePhoneKeyDto) {
+    const docId = `${uid}_${input.deviceId}`;
+    await this.firestore.collection('phoneAuthKeys').doc(docId).set(
+      { revoked: true, revokedAt: Date.now() },
+      { merge: true },
+    );
+    return { success: true, revoked: true };
+  }
+
+  // *** LOGOUT & AUTHORIZATION REVOCATION ***
+  async logout(uid: string, deviceId?: string) {
+    if (deviceId) {
+      await this.firestore
+        .collection('mpinUnlocks')
+        .doc(`${uid}_${deviceId}`)
+        .set({ revoked: true, expiresAt: 0 }, { merge: true });
+    } else {
+      await this.firestore
+        .collection(MPIN_ACCOUNTS)
+        .doc(uid)
+        .set({ unlockExpiresAt: FieldValue.delete() }, { merge: true });
+    }
+    return { success: true };
+  }
+
   createAblyTokenRequest(userId: string): Promise<TokenRequest> {
     const userChannelPattern = REALTIME_CHANNELS.alertsForUser(userId);
 
