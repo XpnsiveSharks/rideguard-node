@@ -14,6 +14,10 @@ export const SOS_LOCATION_MAX_FUTURE_MS = 60 * 1000;
 export const SOS_JOB_EXPIRY_MS = 2 * 60 * 1000;
 export const SOS_RECOVERY_INTERVAL_MS = 30 * 1000;
 export const SOS_SEND_GRACE_MS = 30 * 1000;
+// The scheduler is work-driven. Keep the idle fallback long enough to avoid
+// charging a Firestore read every second when no delivery is active.
+export const SOS_DELIVERY_IDLE_POLL_MS = 30 * 1000;
+export const SOS_DELIVERY_ACTIVE_POLL_MS = 1000;
 
 export const SOS_TIME_ZONE = 'Asia/Manila';
 export const SOS_MAX_NAME_LENGTH = 30;

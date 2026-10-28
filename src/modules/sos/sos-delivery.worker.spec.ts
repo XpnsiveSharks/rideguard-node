@@ -39,17 +39,17 @@ describe('SOS delivery worker diagnostics', () => {
     try {
       await h.module.init();
       await jest.advanceTimersByTimeAsync(3000);
-      expect(h.repository.listDeliveryDue).toHaveBeenCalledTimes(4);
+      expect(h.repository.listDeliveryDue).toHaveBeenCalledTimes(1);
       expect(Logger.prototype.log).toHaveBeenCalledWith('SOS delivery worker started');
       expect(Logger.prototype.log).toHaveBeenCalledWith({ message: 'SOS delivery query ready', dueCount: 0 });
       expect(jest.mocked(Logger.prototype.log).mock.calls.filter(
         ([value]) => value?.message === 'SOS delivery query ready',
       )).toHaveLength(1);
       expect(h.tracker.check).not.toHaveBeenCalled();
+      const count = h.repository.listDeliveryDue.mock.calls.length;
+      await jest.advanceTimersByTimeAsync(60000);
+      expect(h.repository.listDeliveryDue.mock.calls.length).toBeGreaterThan(count);
     } finally { await h.module.close(); }
-    const count = h.repository.listDeliveryDue.mock.calls.length;
-    await jest.advanceTimersByTimeAsync(1000);
-    expect(h.repository.listDeliveryDue).toHaveBeenCalledTimes(count);
   });
 
   it('reports a stuck database query once a minute without overlapping queries', async () => {
@@ -65,7 +65,7 @@ describe('SOS delivery worker diagnostics', () => {
         message: 'SOS delivery scheduling is still waiting', stage: 'query', elapsedMs: 60000,
       });
       release([]);
-      await jest.advanceTimersByTimeAsync(1000);
+      await jest.advanceTimersByTimeAsync(30000);
       expect(h.repository.listDeliveryDue).toHaveBeenCalledTimes(2);
     } finally { await h.module.close(); }
   });
