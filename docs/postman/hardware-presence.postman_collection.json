@@ -1,0 +1,38 @@
+{
+  "info": {
+    "name": "RideGuard Button Presence",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/v1" },
+    { "key": "buttonId", "value": "BUT-111-AAA" },
+    { "key": "firebaseToken", "value": "" },
+    { "key": "deviceSecret", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "List my buttons",
+      "request": {
+        "method": "GET",
+        "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{firebaseToken}}", "type": "string" }] },
+        "url": "{{baseUrl}}/devices/buttons"
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('Rider inventory succeeds', () => pm.response.to.have.status(200));",
+        "pm.test('Presence has explicit booleans', () => { const b = pm.response.json(); pm.expect(b.success).to.eql(true); pm.expect(b.data).to.be.an('array'); b.data.forEach(d => { pm.expect(d.online).to.be.a('boolean'); pm.expect(d.device_id).to.match(/^BUT-/); pm.expect(d).not.to.have.property('deviceSecretHash'); }); });"
+      ] } }]
+    },
+    {
+      "name": "Report hardware heartbeat (writes presence)",
+      "request": {
+        "method": "POST",
+        "auth": { "type": "bearer", "bearer": [{ "key": "token", "value": "{{deviceSecret}}", "type": "string" }] },
+        "url": "{{baseUrl}}/devices/{{buttonId}}/heartbeat"
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": [
+        "pm.test('Heartbeat accepted', () => pm.response.to.have.status(200));",
+        "pm.test('Heartbeat window', () => { const d = pm.response.json().data; pm.expect(d.device_id).to.eql(pm.variables.get('buttonId')); pm.expect(d.online_timeout_ms).to.eql(90000); });"
+      ] } }]
+    }
+  ]
+}
