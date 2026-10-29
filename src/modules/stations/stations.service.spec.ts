@@ -9,9 +9,28 @@ type Data = Record<string, unknown>;
 
 function makeFirestore(seed: Record<string, Data>) {
   const docs = new Map(Object.entries(seed));
-  const ref = (name: string, id: string) => ({ id, path: `${name}/${id}` });
+  const ref = (name: string, id: string) => {
+    const path = `${name}/${id}`;
+    return {
+      id,
+      path,
+      create: (data: Data) => {
+        if (docs.has(path)) return Promise.reject(Object.assign(new Error('exists'), { code: 6 }));
+        docs.set(path, data);
+        return Promise.resolve();
+      },
+    };
+  };
   const firestore = {
-    collection: (name: string) => ({ doc: (id: string) => ref(name, id) }),
+    collection: (name: string) => ({
+      doc: (id: string) => ref(name, id),
+      get: () =>
+        Promise.resolve({
+          docs: [...docs.entries()]
+            .filter(([path]) => path.startsWith(`${name}/`))
+            .map(([path, data]) => ({ id: path.slice(name.length + 1), data: () => data })),
+        }),
+    }),
     runTransaction: async <T>(callback: (transaction: unknown) => Promise<T>): Promise<T> => {
       const writes: [string, Data][] = [];
       const result = await callback({
@@ -163,6 +182,44 @@ describe('StationsService', () => {
 
     await expect(ack('station-a')).rejects.toBeInstanceOf(ForbiddenException);
     await expect(ack('station-b')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('persists an SOS incident routed to the nearest available station, once', async () => {
+    const { firestore, docs } = makeFirestore({
+      'stations/station-a': { ...stationA },
+      'stations/station-b': { ...stationB },
+      'stations/station-c': { ...stationC },
+    });
+    const service = new StationsService(firestore);
+    const input = {
+      sosId: 'sos-1',
+      location,
+      riderName: 'Maria Santos',
+      receivedAt: '2026-10-29T01:00:00.000Z',
+    };
+
+    await expect(service.openIncidentForSos(input)).resolves.toBe('created');
+    const stored = docs.get('authority_incidents/incident-sos-1') as AuthorityIncident;
+    expect(stored.notifiedRecipients.map((r) => [r.stationId, r.reasons])).toEqual([
+      ['station-a', ['nearest']],
+    ]);
+    expect(stored).toMatchObject({ status: 'new', riderName: 'Maria Santos', leadStationId: null });
+
+    await expect(service.openIncidentForSos(input)).resolves.toBe('exists');
+  });
+
+  it('writes no incident when no station is available', async () => {
+    const { firestore, docs } = makeFirestore({ 'stations/station-c': { ...stationC } });
+    const service = new StationsService(firestore);
+    await expect(
+      service.openIncidentForSos({
+        sosId: 'sos-2',
+        location,
+        riderName: null,
+        receivedAt: '2026-10-29T01:00:00.000Z',
+      }),
+    ).resolves.toBe('no_stations');
+    expect(docs.has('authority_incidents/incident-sos-2')).toBe(false);
   });
 });
 

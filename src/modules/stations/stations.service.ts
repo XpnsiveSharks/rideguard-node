@@ -85,6 +85,39 @@ export class StationsService {
     return nextIncident;
   }
 
+  async listStations(): Promise<Station[]> {
+    const snapshot = await this.firestore.collection('stations').get();
+    return snapshot.docs.map((doc) => ({ ...(doc.data() as Omit<Station, 'id'>), id: doc.id }));
+  }
+
+  // Persists the routed incident for a new SOS. Pilot routing has no coverage
+  // label source yet, so only the nearest available station is notified.
+  // Idempotent: the incident id derives from the SOS id.
+  async openIncidentForSos(input: {
+    sosId: string;
+    location: StationLocation;
+    riderName: string | null;
+    receivedAt: string;
+  }): Promise<'created' | 'exists' | 'no_stations'> {
+    const incident = this.projectIncident({
+      sosId: input.sosId,
+      location: input.location,
+      coverageLabels: [],
+      stations: await this.listStations(),
+      riderName: input.riderName,
+      receivedAt: input.receivedAt,
+    });
+    if (incident.notifiedRecipients.length === 0) return 'no_stations';
+    try {
+      await this.firestore.collection('authority_incidents').doc(incident.id).create(incident);
+    } catch (error) {
+      // ALREADY_EXISTS: a retry already opened it.
+      if ((error as { code?: number }).code === 6) return 'exists';
+      throw error;
+    }
+    return 'created';
+  }
+
   async acknowledgeLead(input: {
     incidentId: string;
     stationId: string;
