@@ -39,6 +39,9 @@ letter, and one number.
 
 ## POST /v1/auth/login
 
+### Contextual Unverified Response
+If credentials match but the user's email is unverified, returns HTTP `403 Forbidden` with `{ code: "ACCOUNT_UNVERIFIED", email, uid, emailVerified: false }`.
+
 Accepts `{ "identifier": "jane.driver", "password": "Password1" }`. The
 identifier can be a username or email. Success returns `200` with the Firebase
 `uid` and email in `data`. Wrong credentials always return the same `401`

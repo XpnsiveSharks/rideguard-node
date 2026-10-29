@@ -36,7 +36,7 @@ import type {
   SubmissionSummary,
 } from './sos.types';
 import { idleRefresh } from './sos.types';
-import { acceptedWork, endEligible } from './sos-delivery';
+import { acceptedWork, endEligible, needsRecovery } from './sos-delivery';
 import { SosDeliveryWorker } from './sos-delivery.worker';
 
 const FALLBACK_NAME = 'A RideGuard user';
@@ -86,22 +86,10 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
     try {
       let afterId: string | undefined;
       for (;;) {
-        const page = await this.repository.listPage(afterId);
+        const page = await this.repository.listNeedingRecovery(afterId);
         if (page.length === 0) break;
         for (const record of page) {
-          if (
-            !record.recipients.some(
-              (r) =>
-                r.initial.status === 'queued' ||
-                r.initial.status === 'sending' ||
-                r.ended?.status === 'queued' ||
-                r.ended?.status === 'sending' ||
-                (record.status === 'ended' &&
-                  r.ended === null &&
-                  endEligible(r)),
-            )
-          )
-            continue;
+          if (!needsRecovery(record)) continue;
           try {
             await this.recoverRecord(record.sosId);
           } catch {

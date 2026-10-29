@@ -8,3 +8,7 @@ export const MPIN_GRANT_MS = 10 * 60 * 1000;
 export const MPIN_CODE_MS = 10 * 60 * 1000;
 export const MPIN_RESEND_MS = 60 * 1000;
 export const MPIN_CODE_ATTEMPT_LIMIT = 5;
+export const MPIN_UNLOCKS = 'mpinUnlocks';
+export const MPIN_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
+export const MPIN_HISTORY_LIMIT = 3;
+export const MPIN_DEFAULT_DEEP_LINK_BASE_URL = 'https://app.rideguard.ph/mpin';

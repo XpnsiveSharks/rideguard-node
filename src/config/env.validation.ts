@@ -35,6 +35,7 @@ export interface EnvironmentVariables {
   TEXTBEE_API_KEY: string;
   TEXTBEE_DEVICE_ID: string;
   TEXTBEE_TIMEOUT_MS: number;
+  MPIN_DEEP_LINK_BASE_URL: string;
 }
 
 const ABLY_API_KEY_PATTERN = /^[\w-]+\.[\w-]+:[\w=-]+$/;
@@ -120,4 +121,5 @@ export const envValidationSchema = Joi.object<EnvironmentVariables, true>({
   // entirely when unset so TextBee picks its own default device.
   TEXTBEE_DEVICE_ID: Joi.string().allow('').default(''),
   TEXTBEE_TIMEOUT_MS: Joi.number().integer().positive().default(10000),
+  MPIN_DEEP_LINK_BASE_URL: Joi.string().uri().default('https://app.rideguard.ph/mpin'),
 });

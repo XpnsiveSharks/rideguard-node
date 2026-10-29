@@ -69,12 +69,14 @@ export type SosRecord = {
   statusRefresh?: StatusRefresh;
   refreshTargets?: RefreshTarget[];
   deliveryDueAt?: number | null;
+  // Absent until the needsRecovery backfill runs on older records.
+  needsRecovery?: boolean;
 };
 
 export type PublicSosRecipient = Omit<SosRecipient, 'phone' | 'providerMessageId' | 'initialWork' | 'endedWork'> & {
   phone: string;
 };
-export type PublicSos = Omit<SosRecord, 'uid' | 'recipients' | 'requesterName' | 'alertId' | 'refreshTargets' | 'deliveryDueAt'> & {
+export type PublicSos = Omit<SosRecord, 'uid' | 'recipients' | 'requesterName' | 'alertId' | 'refreshTargets' | 'deliveryDueAt' | 'needsRecovery'> & {
   alertId: string | null;
   recipients: PublicSosRecipient[];
 };

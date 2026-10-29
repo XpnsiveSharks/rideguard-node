@@ -1,4 +1,4 @@
-import { IsEmail, IsString, Matches, MinLength } from 'class-validator';
+import { IsArray, IsEmail, IsOptional, IsString, Matches, MinLength } from 'class-validator';
 import { GMAIL_PATTERN, PASSWORD_MIN_LENGTH, USERNAME_PATTERN } from './auth.validation';
 
 export class RegisterDto {
@@ -38,4 +38,50 @@ export class ForgotPasswordDto {
 export class DeleteAccountDto {
   @IsString()
   password!: string;
+}
+
+export class UpdateOnboardingDto {
+  @IsOptional()
+  @IsString()
+  step?: string;
+
+  @IsOptional()
+  @IsArray()
+  completedSteps?: string[];
+
+  @IsOptional()
+  data?: Record<string, unknown>;
+}
+
+export class EnrollPhoneKeyDto {
+  @IsString()
+  deviceId!: string;
+
+  @IsString()
+  publicKey!: string;
+
+  @IsOptional()
+  @IsString()
+  algorithm?: string;
+}
+
+export class PhoneAuthChallengeDto {
+  @IsString()
+  deviceId!: string;
+}
+
+export class VerifyPhoneSignatureDto {
+  @IsString()
+  deviceId!: string;
+
+  @IsString()
+  challengeId!: string;
+
+  @IsString()
+  signature!: string;
+}
+
+export class RevokePhoneKeyDto {
+  @IsString()
+  deviceId!: string;
 }

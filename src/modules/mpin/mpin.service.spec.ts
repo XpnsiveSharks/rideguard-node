@@ -1,19 +1,12 @@
 import {
-  BadRequestException,
   ConflictException,
   HttpException,
-  HttpStatus,
   UnauthorizedException,
 } from '@nestjs/common';
-import { MpinService, MPIN_EMAIL_SENDER, MpinEmailSender } from './mpin.service';
+import { MpinService, MpinEmailSender } from './mpin.service';
 import type { Firestore } from 'firebase-admin/firestore';
 import type { Auth } from 'firebase-admin/auth';
-import {
-  MPIN_ACCOUNTS,
-  MPIN_CHALLENGES,
-  MPIN_GRANTS,
-  MPIN_LOCK_MS,
-} from './mpin.constants';
+import { MPIN_ACCOUNTS, MPIN_DEFAULT_DEEP_LINK_BASE_URL } from './mpin.constants';
 
 describe('MpinService', () => {
   let service: MpinService;
@@ -68,6 +61,9 @@ describe('MpinService', () => {
 
     mockEmailSender = {
       sendCode: jest.fn(async (_to: string, _code: string, _purpose: 'change' | 'recovery') => {}),
+      sendEmailLink: jest.fn(
+        async (_to: string, _link: string, _purpose: 'change' | 'recovery') => {},
+      ),
     };
 
     service = new MpinService(mockFirestore, mockAuth, mockEmailSender);
@@ -172,16 +168,111 @@ describe('MpinService', () => {
 
     it('sends recovery code and enforces resend cooldown', async () => {
       const challenge = await service.requestRecovery('uid-1');
-      expect(mockEmailSender.sendCode).toHaveBeenCalledWith('user@gmail.com', expect.any(String), 'recovery');
+      expect(mockEmailSender.sendCode).toHaveBeenCalledWith(
+        'user@gmail.com',
+        expect.any(String),
+        'recovery',
+      );
 
       // Resend too early throws 429
-      await expect(service.resendRecovery('uid-1', challenge.challengeId)).rejects.toThrow(HttpException);
+      await expect(service.resendRecovery('uid-1', challenge.challengeId)).rejects.toThrow(
+        HttpException,
+      );
     });
 
     it('rejects invalid or expired recovery codes', async () => {
       const challenge = await service.requestRecovery('uid-1');
-      await expect(service.verifyRecovery('uid-1', challenge.challengeId, '000000')).rejects.toThrow(
+      await expect(
+        service.verifyRecovery('uid-1', challenge.challengeId, '000000'),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  describe('email-link flow', () => {
+    beforeEach(async () => {
+      await service.create('uid-1', '1234');
+    });
+
+    it('issues change email link via sendEmailLink (not sendCode)', async () => {
+      const auth = await service.authorizeChange('uid-1', '1234');
+      const res = await service.requestChangeEmailLink('uid-1', auth.token, 'device-1');
+
+      expect(res.maskedDestination).toBe('u***@gmail.com');
+      expect(res.expiresAt).toBeGreaterThan(Date.now());
+      expect(mockEmailSender.sendEmailLink).toHaveBeenCalledTimes(1);
+      expect(mockEmailSender.sendCode).not.toHaveBeenCalled();
+
+      const [to, link, purpose] = (mockEmailSender.sendEmailLink as jest.Mock).mock.calls[0];
+      expect(to).toBe('user@gmail.com');
+      expect(purpose).toBe('change');
+      expect(link).toContain('token=');
+      expect(link).toContain('purpose=change');
+    });
+
+    it('issues recovery email link without prior authorization', async () => {
+      const res = await service.requestRecoveryEmailLink('uid-1');
+
+      expect(res.maskedDestination).toBe('u***@gmail.com');
+      expect(mockEmailSender.sendEmailLink).toHaveBeenCalledWith(
+        'user@gmail.com',
+        expect.stringContaining('purpose=recovery'),
+        'recovery',
+      );
+    });
+
+    it('uses MPIN_DEFAULT_DEEP_LINK_BASE_URL when config is not provided', async () => {
+      const auth = await service.authorizeChange('uid-1', '1234');
+      await service.requestChangeEmailLink('uid-1', auth.token);
+
+      const [, link] = (mockEmailSender.sendEmailLink as jest.Mock).mock.calls[0];
+      expect(link.startsWith(MPIN_DEFAULT_DEEP_LINK_BASE_URL)).toBe(true);
+    });
+
+    it('completes change via email link and revokes old PIN', async () => {
+      const auth = await service.authorizeChange('uid-1', '1234');
+      await service.requestChangeEmailLink('uid-1', auth.token);
+
+      const [, link] = (mockEmailSender.sendEmailLink as jest.Mock).mock.calls[0];
+      const token = new URL(link).searchParams.get('token')!;
+
+      const res = await service.verifyEmailLinkAndChange('uid-1', token, '9876');
+      expect(res).toEqual({ success: true });
+
+      // Token is single-use
+      await expect(service.verifyEmailLinkAndChange('uid-1', token, '1111')).rejects.toThrow(
         UnauthorizedException,
+      );
+
+      // New PIN works
+      await expect(service.unlock('uid-1', '9876')).resolves.toEqual({ success: true });
+    });
+
+    it('completes recovery via email link (reset grant)', async () => {
+      await service.requestRecoveryEmailLink('uid-1');
+
+      const [, link] = (mockEmailSender.sendEmailLink as jest.Mock).mock.calls[0];
+      const token = new URL(link).searchParams.get('token')!;
+
+      const res = await service.verifyEmailLinkAndChange('uid-1', token, '5555');
+      expect(res).toEqual({ success: true });
+      await expect(service.unlock('uid-1', '5555')).resolves.toEqual({ success: true });
+    });
+
+    it('falls back to sendCode when sendEmailLink is not implemented', async () => {
+      // Simulate a sender that only implements sendCode (e.g., a legacy Firebase
+      // extension that writes to the `mail` collection).
+      const legacySender: MpinEmailSender = {
+        sendCode: jest.fn(async () => {}),
+      };
+      service = new MpinService(mockFirestore, mockAuth, legacySender);
+
+      const auth = await service.authorizeChange('uid-1', '1234');
+      await service.requestChangeEmailLink('uid-1', auth.token);
+
+      expect(legacySender.sendCode).toHaveBeenCalledWith(
+        'user@gmail.com',
+        expect.stringContaining('token='),
+        'change',
       );
     });
   });

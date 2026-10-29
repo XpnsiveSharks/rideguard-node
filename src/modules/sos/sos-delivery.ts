@@ -17,6 +17,23 @@ export const endEligible = (r: SosRecipient) =>
   (r.initial.status === 'accepted' || r.initial.status === 'unknown') &&
   r.initial.delivery?.status !== 'failed';
 
+// A submission is queued/sending, or an ended SOS still owes an end update.
+export const needsRecovery = (record: SosRecord): boolean =>
+  record.recipients.some(
+    (r) =>
+      r.initial.status === 'queued' ||
+      r.initial.status === 'sending' ||
+      r.ended?.status === 'queued' ||
+      r.ended?.status === 'sending' ||
+      (record.status === 'ended' && r.ended === null && endEligible(r)),
+  );
+
+// Indexed scalars recomputed on every SOS write.
+export function updateIndexedFields(record: SosRecord): void {
+  updateDeliveryDue(record);
+  record.needsRecovery = needsRecovery(record);
+}
+
 export function acceptedWork(
   result: SmsSendResult,
   summary: SubmissionSummary,

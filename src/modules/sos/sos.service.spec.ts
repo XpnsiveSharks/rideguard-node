@@ -10,7 +10,7 @@ import type { EmergencyContactRecord } from '../profile/infrastructure/contact.r
 import type { SosRepository, StartOutcome } from './infrastructure/sos.repository';
 import { SosService } from './sos.service';
 import { SosDeliveryWorker } from './sos-delivery.worker';
-import { updateDeliveryDue } from './sos-delivery';
+import { needsRecovery, updateIndexedFields } from './sos-delivery';
 import type { StartSosDto } from './sos.dto';
 import type { PublicSos, SosRecord } from './sos.types';
 import { Test } from '@nestjs/testing';
@@ -54,9 +54,11 @@ class FakeSosRepository {
     return Promise.resolve(this.records.get(sosId) ?? null);
   }
 
-  listPage(afterId?: string) {
+  // Models an always-current `needsRecovery` index.
+  listNeedingRecovery(afterId?: string) {
     return Promise.resolve(
       [...this.records.values()]
+        .filter(needsRecovery)
         .sort((a, b) => a.sosId.localeCompare(b.sosId))
         .filter((record) => !afterId || record.sosId > afterId)
         .slice(0, 100),
@@ -106,13 +108,13 @@ class FakeSosRepository {
   mutate<T>(sosId: string, change: (record: SosRecord) => T) {
     const record = this.records.get(sosId);
     if (!record) return Promise.resolve(null);
-    const result = change(record); updateDeliveryDue(record); return Promise.resolve(result);
+    const result = change(record); updateIndexedFields(record); return Promise.resolve(result);
   }
 
   async mutateTracking<T>(id: string, change: (record: SosRecord, cooldown: { until: number }) => T) {
     const record = this.records.get(id);
     if (!record) return null;
-    const result = change(record, this.cooldown); updateDeliveryDue(record); return result;
+    const result = change(record, this.cooldown); updateIndexedFields(record); return result;
   }
   listDeliveryDue(now: number) {
     return Promise.resolve([...this.records.values()].filter(r => r.deliveryDueAt != null && r.deliveryDueAt <= now));
@@ -243,7 +245,7 @@ describe('SosService', () => {
       expect(h.r.initial.delivery).toMatchObject({ status: 'delivered', tracking: 'complete' });
       expect(h.track).toHaveBeenCalledTimes(2); expect(h.send).toHaveBeenCalledTimes(1);
       const publicJson = JSON.stringify(await h.service.getOwned(UID, h.id));
-      for (const secret of ['original-device', 'batch-1', 'leaseUntil', 'deliveryDueAt', 'refreshTargets']) expect(publicJson).not.toContain(secret);
+      for (const secret of ['original-device', 'batch-1', 'leaseUntil', 'deliveryDueAt', 'needsRecovery', 'refreshTargets']) expect(publicJson).not.toContain(secret);
     });
 
     it('preserves sent evidence and provider check time through errors, unknown and rare uncertain results', async () => {
@@ -864,7 +866,7 @@ describe('SosService', () => {
 
     it('does not scan, start a timer, or send when disabled', async () => {
       const { service, repo, send } = build({ enabled: false });
-      const list = jest.spyOn(repo, 'listPage');
+      const list = jest.spyOn(repo, 'listNeedingRecovery');
       const timer = jest.spyOn(global, 'setInterval');
       const record = seed(repo, { age: 1000 });
       service.onModuleInit();
@@ -882,10 +884,10 @@ describe('SosService', () => {
         const recover = jest.spyOn(service, 'recover').mockResolvedValue();
         service.onModuleInit();
         expect(recover).toHaveBeenCalledTimes(1);
-        jest.advanceTimersByTime(30000);
+        jest.advanceTimersByTime(300000);
         expect(recover).toHaveBeenCalledTimes(2);
         service.onModuleDestroy();
-        jest.advanceTimersByTime(30000);
+        jest.advanceTimersByTime(300000);
         expect(recover).toHaveBeenCalledTimes(2);
       } finally {
         jest.useRealTimers();
@@ -897,20 +899,32 @@ describe('SosService', () => {
       seed(repo, { id: 'a' });
       const second = seed(repo, { id: 'b' });
       jest.spyOn(repo, 'mutate').mockImplementationOnce(() => Promise.reject(new Error('failure')));
-      const list = jest.spyOn(repo, 'listPage').mockRejectedValueOnce(new Error('failure'));
+      const list = jest.spyOn(repo, 'listNeedingRecovery').mockRejectedValueOnce(new Error('failure'));
       await service.recover();
       await service.recover();
       expect(list).toHaveBeenCalled();
       expect(second.recipients[0].initial.status).toBe('failed');
     });
 
-    it('pages past 100 records so old completed records cannot hide pending work', async () => {
+    it('pages past 100 records needing recovery', async () => {
       const { service, repo } = build();
-      for (let i = 0; i < 101; i += 1)
-        seed(repo, { id: `record-${String(i).padStart(3, '0')}`, initial: 'accepted' });
+      for (let i = 0; i < 101; i += 1) seed(repo, { id: `record-${String(i).padStart(3, '0')}` });
       const pending = seed(repo, { id: 'z-pending' });
       await service.recover();
       expect(pending.recipients[0].initial.status).toBe('failed');
+    });
+
+    it('flags a record for recovery only while it has unfinished submissions', () => {
+      const { repo } = build();
+      const record = seed(repo, { initial: 'queued' });
+      updateIndexedFields(record);
+      expect(record.needsRecovery).toBe(true);
+      record.recipients[0].initial.status = 'failed';
+      updateIndexedFields(record);
+      expect(record.needsRecovery).toBe(false);
+      record.recipients[0].initial.status = 'accepted';
+      record.status = 'ended';
+      expect(needsRecovery(record)).toBe(true);
     });
   });
 
