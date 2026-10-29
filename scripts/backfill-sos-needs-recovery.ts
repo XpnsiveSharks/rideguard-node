@@ -12,6 +12,10 @@ dotenv.config();
 // the field are skipped; re-running is safe. Equality queries cannot find a
 // missing field, so the collection is scanned by document ID.
 //
+// Safe to run against a live deployment: each update is conditional on the
+// document being unchanged since it was read. A document written meanwhile
+// went through SosRepository, which already set the field, so it is skipped.
+//
 // Usage: ts-node -r tsconfig-paths/register scripts/backfill-sos-needs-recovery.ts [startAfterDocId]
 
 const PAGE = 300;
@@ -35,6 +39,7 @@ async function backfill(db: FirebaseFirestore.Firestore, startAfterId?: string) 
   let scanned = 0;
   let updated = 0;
   let flagged = 0;
+  let skipped = 0;
 
   for (;;) {
     let q = collection.orderBy(FieldPath.documentId()).limit(PAGE);
@@ -43,30 +48,36 @@ async function backfill(db: FirebaseFirestore.Firestore, startAfterId?: string) 
     const snap = await q.get();
     if (snap.empty) break;
 
-    const batch = db.batch();
     let pageUpdates = 0;
 
     for (const doc of snap.docs) {
       const record = doc.data() as SosRecord;
       if (record.needsRecovery !== undefined) continue;
       const value = needsRecovery(record);
-      batch.update(doc.ref, { needsRecovery: value });
+      try {
+        await doc.ref.update({ needsRecovery: value }, { lastUpdateTime: doc.updateTime });
+      } catch (error) {
+        // FAILED_PRECONDITION: changed since read; the newer write is current.
+        if ((error as { code?: number }).code !== 9) throw error;
+        skipped++;
+        continue;
+      }
       pageUpdates++;
       if (value) flagged++;
     }
 
-    if (pageUpdates > 0) await batch.commit();
-
     scanned += snap.docs.length;
     updated += pageUpdates;
     lastId = snap.docs[snap.docs.length - 1].id;
-    console.log(`Scanned ${scanned} (updated ${updated}, flagged ${flagged}); cursor=${lastId}`);
+    console.log(
+      `Scanned ${scanned} (updated ${updated}, flagged ${flagged}, skipped ${skipped}); cursor=${lastId}`,
+    );
 
     if (snap.docs.length < PAGE) break;
   }
 
   console.log(
-    `Done. Scanned ${scanned} SOS records, updated ${updated}, flagged ${flagged} for recovery.`,
+    `Done. Scanned ${scanned} SOS records, updated ${updated}, flagged ${flagged} for recovery, skipped ${skipped} changed concurrently.`,
   );
 }
 
