@@ -12,6 +12,8 @@ import { SosRepository } from './infrastructure/sos.repository';
 import { applyLookup, finishRefresh, messageKinds, terminal, workFor } from './sos-delivery';
 import {
   SOS_DELIVERY_ACTIVE_POLL_MS,
+  SOS_DELIVERY_ERROR_BASE_MS,
+  SOS_DELIVERY_ERROR_MAX_MS,
   SOS_DELIVERY_IDLE_POLL_MS,
 } from './sos.constants';
 import type { MessageKind } from './sos.types';
@@ -27,6 +29,7 @@ export class SosDeliveryWorker implements OnModuleInit, OnModuleDestroy {
   private stage: 'idle' | 'query' | 'finalize' = 'idle';
   private reportedQueryReady = false;
   private inFlight = 0;
+  private consecutiveFailures = 0;
   private readonly logger = new Logger(SosDeliveryWorker.name);
   constructor(
     private readonly repository: SosRepository,
@@ -92,6 +95,8 @@ export class SosDeliveryWorker implements OnModuleInit, OnModuleDestroy {
       return { scheduled: true, record };
     });
     if (!outcome) throw new NotFoundException('SOS not found');
+    // The idle fallback is slower than the refresh window; check now.
+    if (outcome.scheduled) this.wake();
     return outcome;
   }
 
@@ -114,6 +119,7 @@ export class SosDeliveryWorker implements OnModuleInit, OnModuleDestroy {
     try {
       this.stage = 'query';
       const records = await this.repository.listDeliveryDue(Date.now());
+      this.consecutiveFailures = 0;
       if (!this.reportedQueryReady) {
         this.reportedQueryReady = true;
         this.logger.log({ message: 'SOS delivery query ready', dueCount: records.length });
@@ -167,7 +173,13 @@ export class SosDeliveryWorker implements OnModuleInit, OnModuleDestroy {
       void Promise.allSettled(jobs);
     } catch (error: unknown) {
       this.logger.warn({ message: 'SOS delivery scheduling failed', stage: this.stage, code: safeErrorCode(error) });
-      this.nextPollAt = Date.now() + SOS_DELIVERY_ACTIVE_POLL_MS;
+      this.nextPollAt =
+        Date.now() +
+        Math.min(
+          SOS_DELIVERY_ERROR_BASE_MS * 2 ** this.consecutiveFailures,
+          SOS_DELIVERY_ERROR_MAX_MS,
+        );
+      this.consecutiveFailures++;
     } finally {
       this.stage = 'idle';
       this.running = false;
