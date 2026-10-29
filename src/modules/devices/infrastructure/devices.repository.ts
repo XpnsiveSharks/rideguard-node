@@ -1,7 +1,7 @@
-import { Injectable, Inject, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { Firestore } from 'firebase-admin/firestore';
 import { FIREBASE_FIRESTORE, NOT_FOUND_ERROR_CODE } from '@/infra/firebase/firebase.constants';
-import { Device, DeviceFields, DeviceSource } from '../domain/device.entity';
+import { Device, DeviceFields, DeviceSource, DeviceType } from '../domain/device.entity';
 import { DeviceMapper, DEVICES_COLLECTION } from './devices.mapper';
 import { FieldValue } from 'firebase-admin/firestore';
 import { CAMERA_ID_PREFIX } from '../device.constants';
@@ -107,6 +107,36 @@ export class DeviceRepository {
       }
       throw error;
     }
+  }
+
+  async recordButtonHeartbeat(
+    deviceId: string,
+    verifiedSecretHash: string,
+  ): Promise<void> {
+    const reference = this.firestore
+      .collection(DEVICES_COLLECTION)
+      .doc(deviceId);
+    await this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(reference);
+      if (!snapshot.exists)
+        throw new UnauthorizedException("Invalid device credentials");
+      const device = DeviceMapper.toDomain(snapshot.data() as DeviceFields);
+      if (device.getDeviceSecretHash() !== verifiedSecretHash) {
+        throw new UnauthorizedException("Invalid device credentials");
+      }
+      if (
+        device.getDeviceType().toLowerCase() !== DeviceType.BUTTON ||
+        device.isPhone()
+      ) {
+        throw new ForbiddenException(
+          "Heartbeats are only available to button devices",
+        );
+      }
+      transaction.update(reference, {
+        lastSeenAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    });
   }
 
   async findDeviceById(deviceId: string): Promise<Device | null> {

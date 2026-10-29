@@ -14,6 +14,8 @@ import { DeviceId } from './domain/device-id.value-object';
 import { generateDeviceSecret, hashDeviceSecret } from './infrastructure/device-secret';
 import type {
   CameraView,
+  ButtonView,
+  ButtonHeartbeatResult,
   DisconnectDeviceResult,
   RegisterDeviceResult,
   RotateDeviceSecretResult,
@@ -21,6 +23,8 @@ import type {
 import { PinoLogger } from 'nestjs-pino';
 import {
   CAMERA_ONLINE_WINDOW_MS,
+  BUTTON_HEARTBEAT_INTERVAL_MS,
+  BUTTON_ONLINE_WINDOW_MS,
   DEVICE_EVENTS,
   DEVICE_MESSAGES,
   MAX_DEVICE_ID_GENERATION_ATTEMPTS,
@@ -192,6 +196,67 @@ export class DevicesService {
         last_seen_at: lastSeenAt ? lastSeenAt.toISOString() : null,
       };
     });
+  }
+
+  async findButtonsForUser(userId: string | undefined): Promise<ButtonView[]> {
+    const uid = userId?.trim();
+    if (!uid) {
+      throw new UnprocessableEntityException(
+        "We could not verify your account. Please log in again.",
+      );
+    }
+    const devices = await this.deviceRepository.findDevicesByAssignedUser(uid);
+    const now = Date.now();
+    return devices
+      .filter(
+        (device) =>
+          device.getDeviceId().startsWith("BUT-") &&
+          device.getDeviceType().toLowerCase() === DeviceType.BUTTON &&
+          !device.isPhone(),
+      )
+      .sort((a, b) => a.getDeviceId().localeCompare(b.getDeviceId()))
+      .map((device) => {
+        const lastSeen = device.getLastSeenAt();
+        const age = lastSeen
+          ? now - lastSeen.getTime()
+          : Number.POSITIVE_INFINITY;
+        return {
+          device_id: device.getDeviceId(),
+          online: age >= 0 && age <= BUTTON_ONLINE_WINDOW_MS,
+          last_seen_at:
+            lastSeen && Number.isFinite(lastSeen.getTime())
+              ? lastSeen.toISOString()
+              : null,
+        };
+      });
+  }
+
+  async reportButtonHeartbeat(
+    deviceId: string,
+    authorization: string | undefined,
+  ): Promise<ButtonHeartbeatResult> {
+    const secret = authorization?.match(/^Bearer ([^\s]+)$/i)?.[1];
+    if (!secret) throw new UnauthorizedException("Invalid device credentials");
+    const device = await this.verifyDeviceCredentials(deviceId, secret);
+    if (
+      device.getDeviceType().toLowerCase() !== DeviceType.BUTTON ||
+      device.isPhone()
+    ) {
+      throw new ForbiddenException(
+        "Heartbeats are only available to button devices",
+      );
+    }
+    // Recheck the verified hash inside the write transaction. A secret rotated
+    // after verification must not grant one last heartbeat with revoked proof.
+    await this.deviceRepository.recordButtonHeartbeat(
+      device.getDeviceId(),
+      hashDeviceSecret(secret),
+    );
+    return {
+      device_id: device.getDeviceId(),
+      heartbeat_interval_ms: BUTTON_HEARTBEAT_INTERVAL_MS,
+      online_timeout_ms: BUTTON_ONLINE_WINDOW_MS,
+    };
   }
 
   // A phone is online while its session is active, model-api reports it
