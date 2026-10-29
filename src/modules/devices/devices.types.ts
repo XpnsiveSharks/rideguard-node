@@ -28,6 +28,18 @@ export interface CameraView {
   last_seen_at: string | null;
 }
 
+export interface ButtonView {
+  device_id: string;
+  online: boolean;
+  last_seen_at: string | null;
+}
+
+export interface ButtonHeartbeatResult {
+  device_id: string;
+  heartbeat_interval_ms: number;
+  online_timeout_ms: number;
+}
+
 export interface PhoneCameraView {
   device_id: string;
   source: DeviceSource.PHONE;

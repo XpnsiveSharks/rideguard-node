@@ -9,6 +9,9 @@ export const CAMERA_ID_PREFIX = 'CAM-';
 // a heartbeat) for the online flag to stay accurate.
 export const CAMERA_ONLINE_WINDOW_MS = 90_000;
 
+export const BUTTON_HEARTBEAT_INTERVAL_MS = 30_000;
+export const BUTTON_ONLINE_WINDOW_MS = 90_000;
+
 export const DEVICE_EVENTS = {
   DEVICE_CREATED: 'device.created',
   DEVICE_ASSIGNED: 'device.assigned',

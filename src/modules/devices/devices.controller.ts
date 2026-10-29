@@ -9,6 +9,8 @@ import { RolesGuard } from '@/common/guards/roles.guard';
 import { ServiceKeyGuard } from '@/common/guards/service-key.guard';
 import type {
   CameraView,
+  ButtonView,
+  ButtonHeartbeatResult,
   DevicePublisherTokenResult,
   DisconnectDeviceResult,
   RegisterDeviceResult,
@@ -88,6 +90,24 @@ export class DevicesController {
   @Get('cameras')
   listMyCameras(@Req() req: Request): Promise<CameraView[]> {
     return this.devicesService.findCamerasForUser(req.user?.uid);
+  }
+
+  @Get('buttons')
+  @Header('Cache-Control', 'no-store')
+  listMyButtons(@Req() req: Request): Promise<ButtonView[]> {
+    return this.devicesService.findButtonsForUser(req.user?.uid);
+  }
+
+  // The hardware secret is verified in the service; caller timestamps are ignored.
+  @Public()
+  @Post(':device_id/heartbeat')
+  @HttpCode(HttpStatus.OK)
+  @Header('Cache-Control', 'no-store')
+  reportButtonHeartbeat(
+    @Param('device_id') deviceId: string,
+    @Headers('authorization') authorization: string | undefined,
+  ): Promise<ButtonHeartbeatResult> {
+    return this.devicesService.reportButtonHeartbeat(deviceId, authorization);
   }
 
   // MOBILE ROUTE
