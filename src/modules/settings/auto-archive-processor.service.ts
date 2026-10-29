@@ -5,7 +5,7 @@ import { DevicesService } from '@/modules/devices/devices.service';
 import { AlertsRepository } from '@/modules/alerts/infrastructure/alerts.repository';
 import { SettingsService } from './settings.service';
 
-const INTERVAL_MS = 60 * 1000; // every 60 seconds
+const INTERVAL_MS = 15 * 60 * 1000; // every 15 minutes
 
 // Max alerts archived per account per pass. Bounds each pass so one large
 // account cannot starve the others; archived alerts leave the candidate query,

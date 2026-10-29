@@ -6,7 +6,7 @@ import { FieldPath } from 'firebase-admin/firestore';
 import { FIREBASE_AUTH, FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
 import type { EnvironmentVariables } from '@/config/env.validation';
 
-const INTERVAL_MS = 60 * 1000; // every 60 seconds
+const INTERVAL_MS = 15 * 60 * 1000; // every 15 minutes
 
 @Injectable()
 export class AccountDeletionProcessorService implements OnModuleInit, OnModuleDestroy {
