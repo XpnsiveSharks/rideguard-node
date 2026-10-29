@@ -21,6 +21,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { SettingsModule } from './modules/settings/settings.module';
 import { SosModule } from './modules/sos/sos.module';
 import { MpinModule } from './modules/mpin/mpin.module';
+import { StationsModule } from './modules/stations/stations.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { MpinModule } from './modules/mpin/mpin.module';
     SettingsModule,
     SosModule,
     MpinModule,
+    StationsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

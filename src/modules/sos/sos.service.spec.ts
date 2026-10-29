@@ -10,6 +10,7 @@ import type { EmergencyContactRecord } from '../profile/infrastructure/contact.r
 import type { SosRepository, StartOutcome } from './infrastructure/sos.repository';
 import { SosService } from './sos.service';
 import { SosDeliveryWorker } from './sos-delivery.worker';
+import type { StationsService } from '../stations/stations.service';
 import { needsRecovery, updateIndexedFields } from './sos-delivery';
 import type { StartSosDto } from './sos.dto';
 import type { PublicSos, SosRecord } from './sos.types';
@@ -147,6 +148,7 @@ type Harness = {
   send: jest.Mock<Promise<SmsSendResult>, [SmsSendInput]>;
   track: jest.Mock<Promise<SmsDeliveryStatus>, [string]>;
   getAlert: jest.Mock;
+  openIncident: jest.Mock;
 };
 
 function build(
@@ -156,6 +158,7 @@ function build(
     contacts?: EmergencyContactRecord[];
     send?: (input: SmsSendInput) => Promise<SmsSendResult>;
     track?: SmsDeliveryStatus;
+    openIncident?: () => Promise<'created' | 'exists' | 'no_stations'>;
   } = {},
 ): Harness {
   const repo = new FakeSosRepository();
@@ -195,6 +198,7 @@ function build(
 
   const tracker = { track, check: track } as unknown as SmsDeliveryTracker;
   const worker = new SosDeliveryWorker(repo as unknown as SosRepository, tracker, config);
+  const openIncident = jest.fn(options.openIncident ?? (() => Promise.resolve('created' as const)));
   const service = new SosService(
     repo as unknown as SosRepository,
     profileService,
@@ -202,8 +206,9 @@ function build(
     config,
     { getOwned: getAlert } as unknown as AlertsService,
     worker,
+    { openIncidentForSos: openIncident } as unknown as StationsService,
   );
-  return { service, repo, sent, send, track, getAlert, worker };
+  return { service, repo, sent, send, track, getAlert, worker, openIncident };
 }
 
 const flush = async (): Promise<void> => {
@@ -790,6 +795,7 @@ describe('SosService', () => {
         } as unknown as ConfigService<EnvironmentVariables, true>,
         {} as AlertsService,
         worker,
+        {} as StationsService,
       );
       await Promise.all([service.recover(), other.recover()]);
       await service.recover();
@@ -1069,6 +1075,46 @@ describe('SosService', () => {
       await flush();
 
       expect(sent[0].message).toContain('https://maps.google.com/?q=14.599500,120.984200');
+    });
+  });
+
+  describe('authority incident', () => {
+    const location = () => ({
+      latitude: 14.5995,
+      longitude: 120.9842,
+      capturedAt: new Date().toISOString(),
+      accuracyMeters: 8,
+    });
+
+    it('opens an incident for a new SOS with a location, and not on replay', async () => {
+      const { service, openIncident } = build();
+      const { sos } = await service.start(UID, dto({ location: location() }));
+      await flush();
+      expect(openIncident).toHaveBeenCalledTimes(1);
+      expect(openIncident).toHaveBeenCalledWith(
+        expect.objectContaining({ sosId: sos.sosId, riderName: 'Maria Santos' }),
+      );
+      await service.start(UID, dto({ location: sos.location! }));
+      await flush();
+      expect(openIncident).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips the incident when the SOS has no location', async () => {
+      const { service, openIncident, sent } = build();
+      await service.start(UID, dto());
+      await flush();
+      expect(openIncident).not.toHaveBeenCalled();
+      expect(sent).toHaveLength(2);
+    });
+
+    it('still sends contact SMS when the incident cannot be opened', async () => {
+      const { service, sent } = build({ openIncident: () => Promise.reject(new Error('down')) });
+      const { sos } = await service.start(UID, dto({ location: location() }));
+      await flush();
+      expect(sent).toHaveLength(2);
+      expect(Logger.prototype.error).toHaveBeenCalledWith(
+        `SOS ${sos.sosId}: incident projection failed`,
+      );
     });
   });
 
