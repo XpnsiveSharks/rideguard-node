@@ -25,6 +25,10 @@ export const needsRecovery = (record: SosRecord): boolean =>
       r.initial.status === 'sending' ||
       r.ended?.status === 'queued' ||
       r.ended?.status === 'sending' ||
+      r.initialEmail?.status === 'queued' ||
+      r.initialEmail?.status === 'sending' ||
+      r.endedEmail?.status === 'queued' ||
+      r.endedEmail?.status === 'sending' ||
       (record.status === 'ended' && r.ended === null && endEligible(r)),
   );
 

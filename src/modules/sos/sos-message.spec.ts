@@ -10,13 +10,13 @@ const location: SosLocation = {
 };
 
 describe('composeInitialMessage', () => {
-  it('includes the requester, a Maps link and the Manila capture time', () => {
+  it('directs the contact to email without putting a URL in SMS', () => {
     const message = composeInitialMessage('Maria Santos', location);
 
-    expect(message?.locationOmitted).toBe(false);
+    expect(message?.locationOmitted).toBe(true);
     expect(message?.text).toContain('Maria Santos');
-    expect(message?.text).toContain('https://maps.google.com/?q=14.599500,120.984200');
-    expect(message?.text).toMatch(/3:45\s?pm PHT/i);
+    expect(message?.text).toContain('Check your email for the map link.');
+    expect(message?.text).not.toContain('http');
     expect(message?.text.length).toBeLessThanOrEqual(SMS_MAX_MESSAGE_LENGTH);
   });
 
@@ -29,11 +29,11 @@ describe('composeInitialMessage', () => {
     });
   });
 
-  it('shortens only the name, never the map link, to fit one segment', () => {
+  it('keeps the email instruction within one segment for a long name', () => {
     const message = composeInitialMessage('A'.repeat(80), location);
 
-    expect(message?.locationOmitted).toBe(false);
-    expect(message?.text).toContain('https://maps.google.com/?q=14.599500,120.984200');
+    expect(message?.locationOmitted).toBe(true);
+    expect(message?.text).toContain('Check your email for the map link.');
     expect(message?.text.length).toBeLessThanOrEqual(SMS_MAX_MESSAGE_LENGTH);
   });
 

@@ -20,28 +20,40 @@ function boundedName(name: string, limit: number): string {
 
 export type ComposedMessage = { text: string; locationOmitted: boolean };
 
-// Initial SOS text. Prefers the map link; if it cannot fit in one SMS segment
-// even after shortening the name, falls back to the no-location wording
-// (reported via `locationOmitted`) and returns null only if that still does
-// not fit. The map URL is never truncated.
+// Initial SOS text. Contacts with email receive the map link there; SMS only
+// directs them to email so carriers do not filter the URL.
 export function composeInitialMessage(
   requesterName: string,
   location: SosLocation | null,
+  emailAvailable = true,
 ): ComposedMessage | null {
   const fitting = (text: string): boolean => text.length <= SMS_MAX_MESSAGE_LENGTH;
 
+  if (!emailAvailable) {
+    if (location) {
+      const url = `https://maps.google.com/?q=${location.latitude.toFixed(6)},${location.longitude.toFixed(6)}`;
+      const at = formatTime(new Date(location.capturedAt));
+      for (let limit = SOS_MAX_NAME_LENGTH; limit >= 8; limit -= 4) {
+        const text = `RideGuard SOS: ${boundedName(requesterName, limit)} needs help. Phone location as of ${at}: ${url}`;
+        if (fitting(text)) return { text, locationOmitted: false };
+      }
+    }
+    const legacyText = `RideGuard SOS: ${boundedName(requesterName, SOS_MAX_NAME_LENGTH)} needs help. Location unavailable.`;
+    return fitting(legacyText) ? { text: legacyText, locationOmitted: location !== null } : null;
+  }
+
   if (location) {
-    const url = `https://maps.google.com/?q=${location.latitude.toFixed(6)},${location.longitude.toFixed(6)}`;
-    const at = formatTime(new Date(location.capturedAt));
     for (let limit = SOS_MAX_NAME_LENGTH; limit >= 8; limit -= 4) {
-      const text = `RideGuard SOS: ${boundedName(requesterName, limit)} needs help. Phone location as of ${at}: ${url}`;
+      const text = `RideGuard SOS: ${boundedName(requesterName, limit)} needs help. ${emailAvailable ? 'Check your email for the map link.' : 'Contact someone directly.'}`;
       if (fitting(text)) {
-        return { text, locationOmitted: false };
+        return { text, locationOmitted: Boolean(location) };
       }
     }
   }
 
-  const text = `RideGuard SOS: ${boundedName(requesterName, SOS_MAX_NAME_LENGTH)} needs help. Location unavailable.`;
+  const text = `RideGuard SOS: ${boundedName(requesterName, SOS_MAX_NAME_LENGTH)} needs help. ${
+    emailAvailable && location ? 'Check your email for the map link.' : 'Location unavailable.'
+  }`;
   return fitting(text) ? { text, locationOmitted: location !== null } : null;
 }
 
