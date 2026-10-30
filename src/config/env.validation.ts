@@ -36,6 +36,16 @@ export interface EnvironmentVariables {
   TEXTBEE_DEVICE_ID: string;
   TEXTBEE_TIMEOUT_MS: number;
   MPIN_DEEP_LINK_BASE_URL: string;
+  SMTP_HOST: string;
+  SMTP_PORT: number;
+  SMTP_SECURE: boolean;
+  SMTP_USER: string;
+  SMTP_PASS: string;
+  SMTP_FROM: string;
+  VERIFICATION_CODE_PEPPER: string;
+  VERIFICATION_CODE_TTL_MINUTES: number;
+  VERIFICATION_CODE_MAX_ATTEMPTS: number;
+  VERIFICATION_RESEND_COOLDOWN_SECONDS: number;
 }
 
 const ABLY_API_KEY_PATTERN = /^[\w-]+\.[\w-]+:[\w=-]+$/;
@@ -122,4 +132,19 @@ export const envValidationSchema = Joi.object<EnvironmentVariables, true>({
   TEXTBEE_DEVICE_ID: Joi.string().allow('').default(''),
   TEXTBEE_TIMEOUT_MS: Joi.number().integer().positive().default(10000),
   MPIN_DEEP_LINK_BASE_URL: Joi.string().uri().default('https://app.rideguard.ph/mpin'),
+
+  // Nodemailer SMTP. Optional at boot — MailService fails clearly at send time
+  // when host/user/pass are missing (same pattern as SMS adapters).
+  SMTP_HOST: Joi.string().allow('').default(''),
+  SMTP_PORT: Joi.number().integer().positive().default(587),
+  SMTP_SECURE: Joi.boolean().default(false),
+  SMTP_USER: Joi.string().allow('').default(''),
+  SMTP_PASS: Joi.string().allow('').default(''),
+  SMTP_FROM: Joi.string().allow('').default('"RideGuard" <noreply@rideguard.ph>'),
+
+  // Registration email verification codes (hashed at rest with this pepper).
+  VERIFICATION_CODE_PEPPER: Joi.string().required().min(16),
+  VERIFICATION_CODE_TTL_MINUTES: Joi.number().integer().positive().default(10),
+  VERIFICATION_CODE_MAX_ATTEMPTS: Joi.number().integer().positive().default(5),
+  VERIFICATION_RESEND_COOLDOWN_SECONDS: Joi.number().integer().positive().default(60),
 });
