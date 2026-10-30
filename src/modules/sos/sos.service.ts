@@ -286,10 +286,15 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
     });
     if (!outcome) throw new NotFoundException('SOS not found');
 
+    // Deliver the start email before the end email for each contact so a quick
+    // stop never delivers an end email before its start email.
+    for (const contactId of outcome.endEmailContactIds) {
+      await this.sendInitialEmail(sosId, contactId);
+      await this.sendEndEmail(sosId, contactId);
+    }
     for (const contactId of outcome.endContactIds) {
       void this.sendEnd(sosId, contactId);
     }
-    for (const contactId of outcome.endEmailContactIds) void this.sendEndEmail(sosId, contactId);
     return this.toPublic(outcome.record);
   }
 
@@ -407,7 +412,10 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
           recipient.initial = this.summary('failed', nowIso, 'expired');
           return null;
         }
-        const composed = composeInitialMessage(record.requesterName, record.location, Boolean(recipient.email));
+        // Only tell the contact to check email when the backend can actually
+        // deliver it; otherwise fall back to including the location in the SMS.
+        const emailAvailable = Boolean(this.emailSender && recipient.email);
+        const composed = composeInitialMessage(record.requesterName, record.location, emailAvailable);
         if (!composed) {
           recipient.initial = this.summary('failed', nowIso, 'message_too_long');
           return null;
@@ -509,8 +517,11 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
         this.find(record, contactId).initialEmail = this.emailSummary('sent', new Date().toISOString());
       });
     } catch {
+      // A transient SMTP failure should be retried by the recovery worker, not
+      // finalized as failed on the first attempt. Queued work is retried on the
+      // next recovery cycle and expires to failed after SOS_JOB_EXPIRY_MS.
       await this.repository.mutate(sosId, (record) => {
-        this.find(record, contactId).initialEmail = this.emailSummary('failed', new Date().toISOString(), 'delivery_failed');
+        this.find(record, contactId).initialEmail = this.emailSummary('queued', new Date().toISOString());
       });
     }
   }
@@ -530,8 +541,11 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
         this.find(record, contactId).endedEmail = this.emailSummary('sent', new Date().toISOString());
       });
     } catch {
+      // A transient SMTP failure should be retried by the recovery worker, not
+      // finalized as failed on the first attempt. Queued work is retried on the
+      // next recovery cycle and expires to failed after SOS_JOB_EXPIRY_MS.
       await this.repository.mutate(sosId, (record) => {
-        this.find(record, contactId).endedEmail = this.emailSummary('failed', new Date().toISOString(), 'delivery_failed');
+        this.find(record, contactId).endedEmail = this.emailSummary('queued', new Date().toISOString());
       });
     }
   }
