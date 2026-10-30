@@ -133,6 +133,7 @@ export class ProfileService {
     return this.contactRepository.create(uid, {
       name: input.name.trim(),
       phone: input.phone,
+      email: input.email.trim().toLowerCase(),
       relationship: input.relationship,
       photo_url: uploaded.photo_url,
       public_id: uploaded.public_id,
@@ -152,6 +153,7 @@ export class ProfileService {
     const updated = await this.contactRepository.update(uid, id, {
       ...(input.name !== undefined && { name: input.name.trim() }),
       ...(input.phone !== undefined && { phone: input.phone }),
+      ...(input.email !== undefined && { email: input.email.trim().toLowerCase() }),
       ...(input.relationship !== undefined && { relationship: input.relationship }),
       photo_url: uploaded.photo_url,
       public_id: uploaded.public_id,

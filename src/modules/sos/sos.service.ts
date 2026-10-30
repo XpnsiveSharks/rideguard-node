@@ -8,6 +8,7 @@ import {
   NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
   ServiceUnavailableException,
   UnprocessableEntityException,
 } from '@nestjs/common';
@@ -16,6 +17,7 @@ import type { EnvironmentVariables } from '@/config/env.validation';
 import { PH_MOBILE_NUMBER_PATTERN, SMS_SENDER } from '@/infra/sms/sms.constants';
 import type { SmsSender } from '@/infra/sms/sms-sender.interface';
 import type { SmsSendResult } from '@/infra/sms/sms.types';
+import { SOS_EMAIL_SENDER, type SosEmailSender } from '@/infra/email/sos-email.sender';
 import { ProfileService } from '../profile/profile.service';
 import { AlertsService } from '../alerts/alerts.service';
 import { SosRepository } from './infrastructure/sos.repository';
@@ -33,6 +35,7 @@ import type {
   SosLocation,
   SosRecipient,
   SosRecord,
+  EmailSubmission,
   SubmissionSummary,
 } from './sos.types';
 import { idleRefresh } from './sos.types';
@@ -67,6 +70,7 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService<EnvironmentVariables, true>,
     private readonly alertsService: AlertsService,
     private readonly deliveryWorker: SosDeliveryWorker,
+    @Optional() @Inject(SOS_EMAIL_SENDER) private readonly emailSender?: SosEmailSender,
   ) {}
 
   onModuleInit(): void {
@@ -104,7 +108,6 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
       this.recovering = false;
     }
   }
-
   private async recoverRecord(sosId: string): Promise<void> {
     // Longer than either supported adapter's bounded HTTP timeout. Recheck
     // persisted state inside the transaction so another process can stay live.
@@ -131,6 +134,24 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
             }
           }
         }
+        for (const which of ['initialEmail', 'endedEmail'] as const) {
+          const current = recipient[which];
+          if (!current) continue;
+          if (current.status === 'sending' && now - Date.parse(current.updatedAt) > staleAfter) {
+            recipient[which] = this.emailSummary('unknown', nowIso, 'interrupted');
+          } else if (current.status === 'queued' && now - Date.parse(current.updatedAt) > SOS_JOB_EXPIRY_MS) {
+            recipient[which] = this.emailSummary('failed', nowIso, 'expired');
+          }
+        }
+        for (const which of ['initialEmail', 'endedEmail'] as const) {
+          const current = recipient[which];
+          if (!current) continue;
+          if (current.status === 'sending' && now - Date.parse(current.updatedAt) > staleAfter) {
+            recipient[which] = this.emailSummary('unknown', nowIso, 'interrupted');
+          } else if (current.status === 'queued' && now - Date.parse(current.updatedAt) > SOS_JOB_EXPIRY_MS) {
+            recipient[which] = this.emailSummary('failed', nowIso, 'expired');
+          }
+        }
         // An interrupted initial send may have reached the contact. Ending
         // that SOS needs one distinct follow-up, never a repeated initial.
         if (
@@ -140,16 +161,25 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
         ) {
           recipient.ended = this.summary('queued', nowIso);
         }
+        if (record.status === 'ended' && recipient.endedEmail === null) {
+          recipient.endedEmail = recipient.email
+            ? this.emailSummary('queued', nowIso)
+            : this.emailSummary('failed', nowIso, 'email_unavailable');
+        }
       }
       return record.recipients.map((r) => ({
         contactId: r.contactId,
         initial: r.initial.status === 'queued',
         ended: r.ended?.status === 'queued',
+        initialEmail: r.initialEmail?.status === 'queued',
+        endedEmail: r.endedEmail?.status === 'queued',
       }));
     });
     for (const recipient of pending ?? []) {
       if (recipient.initial) await this.sendInitial(sosId, recipient.contactId);
       if (recipient.ended) await this.sendEnd(sosId, recipient.contactId);
+      if (recipient.initialEmail) await this.sendInitialEmail(sosId, recipient.contactId);
+      if (recipient.endedEmail) await this.sendEndEmail(sosId, recipient.contactId);
     }
   }
 
@@ -230,7 +260,8 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
     await this.findOwned(uid, sosId);
     const outcome = await this.repository.mutateAndRelease(uid, sosId, (record) => {
       const endContactIds: string[] = [];
-      if (record.status === 'ended') return { record, endContactIds };
+      const endEmailContactIds: string[] = [];
+      if (record.status === 'ended') return { record, endContactIds, endEmailContactIds };
 
       const nowIso = new Date().toISOString();
       record.status = 'ended';
@@ -238,19 +269,29 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
       for (const recipient of record.recipients) {
         if (recipient.initial.status === 'queued') {
           recipient.initial = this.summary('cancelled', nowIso);
-        } else if (
-          endEligible(recipient)
-        ) {
+        } else if (endEligible(recipient)) {
           // Only these may have reached the contact, so only they get an end
           // update. A 'sending' recipient gets one when its result lands.
           recipient.ended = this.summary('queued', nowIso);
           endContactIds.push(recipient.contactId);
         }
+        if (recipient.endedEmail === null) {
+          recipient.endedEmail = recipient.email
+            ? this.emailSummary('queued', nowIso)
+            : this.emailSummary('failed', nowIso, 'email_unavailable');
+          if (recipient.email) endEmailContactIds.push(recipient.contactId);
+        }
       }
-      return { record, endContactIds };
+      return { record, endContactIds, endEmailContactIds };
     });
     if (!outcome) throw new NotFoundException('SOS not found');
 
+    // Deliver the start email before the end email for each contact so a quick
+    // stop never delivers an end email before its start email.
+    for (const contactId of outcome.endEmailContactIds) {
+      await this.sendInitialEmail(sosId, contactId);
+      await this.sendEndEmail(sosId, contactId);
+    }
     for (const contactId of outcome.endContactIds) {
       void this.sendEnd(sosId, contactId);
     }
@@ -316,8 +357,13 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
         contactId: contact.id,
         name: contact.name,
         phone: contact.phone,
+        email: contact.email ?? '',
         initial: this.summary('queued', now.toISOString()),
+        initialEmail: contact.email
+          ? this.emailSummary('queued', now.toISOString())
+          : this.emailSummary('failed', now.toISOString(), 'email_unavailable'),
         ended: null,
+        endedEmail: null,
       });
     }
 
@@ -345,6 +391,9 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
     await Promise.allSettled(
       record.recipients.map((recipient) => this.sendInitial(record.sosId, recipient.contactId)),
     );
+    await Promise.allSettled(
+      record.recipients.map((recipient) => this.sendInitialEmail(record.sosId, recipient.contactId)),
+    );
   }
 
   private async sendInitial(sosId: string, contactId: string): Promise<void> {
@@ -363,7 +412,10 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
           recipient.initial = this.summary('failed', nowIso, 'expired');
           return null;
         }
-        const composed = composeInitialMessage(record.requesterName, record.location);
+        // Only tell the contact to check email when the backend can actually
+        // deliver it; otherwise fall back to including the location in the SMS.
+        const emailAvailable = Boolean(this.emailSender && recipient.email);
+        const composed = composeInitialMessage(record.requesterName, record.location, emailAvailable);
         if (!composed) {
           recipient.initial = this.summary('failed', nowIso, 'message_too_long');
           return null;
@@ -392,6 +444,9 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
           endEligible(recipient)
         ) {
           recipient.ended = this.summary('queued', new Date().toISOString());
+          recipient.endedEmail = recipient.email
+            ? this.emailSummary('queued', new Date().toISOString())
+            : this.emailSummary('failed', new Date().toISOString(), 'email_unavailable');
           return true;
         }
         return false;
@@ -399,7 +454,10 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
       if (work) this.deliveryWorker.wake();
 
       this.logger.log(`SOS ${sosId}: initial send ${summary.status}`);
-      if (needsEnd) await this.sendEnd(sosId, contactId);
+      if (needsEnd) {
+        await this.sendEnd(sosId, contactId);
+        await this.sendEndEmail(sosId, contactId);
+      }
     } catch (error) {
       await this.markInterrupted(sosId, contactId, 'initial', error);
     }
@@ -441,6 +499,54 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
       this.logger.log(`SOS ${sosId}: end update ${summary.status}`);
     } catch (error) {
       await this.markInterrupted(sosId, contactId, 'ended', error);
+    }
+  }
+
+  private async sendInitialEmail(sosId: string, contactId: string): Promise<void> {
+    if (!this.emailSender) return;
+    const claim = await this.repository.mutate(sosId, (record) => {
+      const recipient = this.find(record, contactId);
+      if (!recipient.email || recipient.initialEmail?.status !== 'queued') return null;
+      recipient.initialEmail = this.emailSummary('sending', new Date().toISOString());
+      return { to: recipient.email, requesterName: record.requesterName, location: record.location, createdAt: record.createdAt };
+    });
+    if (!claim) return;
+    try {
+      await this.emailSender.sendStart(claim);
+      await this.repository.mutate(sosId, (record) => {
+        this.find(record, contactId).initialEmail = this.emailSummary('sent', new Date().toISOString());
+      });
+    } catch {
+      // A transient SMTP failure should be retried by the recovery worker, not
+      // finalized as failed on the first attempt. Queued work is retried on the
+      // next recovery cycle and expires to failed after SOS_JOB_EXPIRY_MS.
+      await this.repository.mutate(sosId, (record) => {
+        this.find(record, contactId).initialEmail = this.emailSummary('queued', new Date().toISOString());
+      });
+    }
+  }
+
+  private async sendEndEmail(sosId: string, contactId: string): Promise<void> {
+    if (!this.emailSender) return;
+    const claim = await this.repository.mutate(sosId, (record) => {
+      const recipient = this.find(record, contactId);
+      if (!recipient.email || recipient.endedEmail?.status !== 'queued') return null;
+      recipient.endedEmail = this.emailSummary('sending', new Date().toISOString());
+      return { to: recipient.email, requesterName: record.requesterName, location: record.location, endedAt: record.endedAt ?? new Date().toISOString() };
+    });
+    if (!claim) return;
+    try {
+      await this.emailSender.sendEnd(claim);
+      await this.repository.mutate(sosId, (record) => {
+        this.find(record, contactId).endedEmail = this.emailSummary('sent', new Date().toISOString());
+      });
+    } catch {
+      // A transient SMTP failure should be retried by the recovery worker, not
+      // finalized as failed on the first attempt. Queued work is retried on the
+      // next recovery cycle and expires to failed after SOS_JOB_EXPIRY_MS.
+      await this.repository.mutate(sosId, (record) => {
+        this.find(record, contactId).endedEmail = this.emailSummary('queued', new Date().toISOString());
+      });
     }
   }
 
@@ -491,6 +597,10 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
     return errorCode ? { status, updatedAt, errorCode, delivery: null } : { status, updatedAt, delivery: null };
   }
 
+  private emailSummary(status: EmailSubmission['status'], updatedAt: string, errorCode?: string): EmailSubmission {
+    return errorCode ? { status, updatedAt, errorCode } : { status, updatedAt };
+  }
+
   private find(record: SosRecord, contactId: string): SosRecipient {
     const recipient = record.recipients.find((item) => item.contactId === contactId);
     if (!recipient) throw new Error('recipient missing');
@@ -520,6 +630,9 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
         contactId: recipient.contactId,
         name: recipient.name,
         phone: maskPhone(recipient.phone),
+        email: recipient.email ?? '',
+        initialEmail: recipient.initialEmail ?? this.emailSummary('unknown', recipient.initial.updatedAt, 'unavailable'),
+        endedEmail: recipient.endedEmail ?? null,
         initial: { ...recipient.initial, delivery: recipient.initial.delivery ?? null },
         ended: recipient.ended ? { ...recipient.ended, delivery: recipient.ended.delivery ?? null } : null,
       })),

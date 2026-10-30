@@ -14,10 +14,14 @@ with `/v1`. Successful responses use the standard envelope:
 | GET    | `/profile/me`                     | none                                                                                                                                      | Profile document, including `photo_url` and `public_id` when present.                  |
 | POST   | `/profile/photo`                  | multipart `photo`; JPEG/PNG/WebP, <= 5 MB                                                                                                 | `{ "photo_url": "https://res.cloudinary.com/...", "public_id": "profile-photos/..." }` |
 | GET    | `/profile/emergency-contacts`     | none                                                                                                                                      | Contact array.                                                                         |
-| POST   | `/profile/emergency-contacts`     | multipart `name`, `phone` (`+639xxxxxxxxx`), `relationship` (`Parent`, `Sibling`, `Spouse`, `Child`, `Friend`, `Other`), optional `photo` | Created contact with `photo_url` and `public_id`, or null values.                      |
-| GET    | `/profile/emergency-contacts/:id` | none                                                                                                                                      | One owned contact; another user's ID returns 404.                                      |
-| PATCH  | `/profile/emergency-contacts/:id` | multipart changed fields and optional `photo`                                                                                             | Updated contact; replacing a photo deletes the old Cloudinary asset.                   |
+| POST   | `/profile/emergency-contacts`     | multipart `name`, `phone` (`+639xxxxxxxxx`), `email`, `relationship` (`Parent`, `Sibling`, `Spouse`, `Child`, `Friend`, `Other`), optional `photo` | Created contact with `email`, `photo_url` and `public_id`, or null values.             |
+| GET    | `/profile/emergency-contacts/:id` | none                                                                                                                                      | One owned contact, including `email`; another user's ID returns 404.                   |
+| PATCH  | `/profile/emergency-contacts/:id` | multipart changed fields (`email` is validated when supplied) and optional `photo`                                                        | Updated contact; replacing a photo deletes the old Cloudinary asset.                   |
 | DELETE | `/profile/emergency-contacts/:id` | none                                                                                                                                      | Empty `data` object; another user's ID returns 404.                                    |
+
+An email address is required to create a contact and is optional (validated
+when supplied) on update. Email is stored with the contact and used by the SOS
+email channel; it is not masked in the contact list response.
 
 Photo failures return `400` for a missing/unsupported file or a file over
 `PROFILE_PHOTO_MAX_BYTES` (5 MiB). Missing/invalid authentication returns 401.

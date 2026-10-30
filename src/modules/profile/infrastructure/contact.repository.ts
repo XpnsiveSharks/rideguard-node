@@ -7,6 +7,7 @@ export interface EmergencyContactRecord {
   uid: string;
   name: string;
   phone: string;
+  email: string;
   relationship: string;
   photo_url: string | null;
   public_id: string | null;

@@ -104,6 +104,26 @@ backend-only. Leases last at least 30s and exceed the configured HTTP timeout by
 calls. A singleton worker allows at most two concurrent status calls per process.
 It runs independently of the activation flag and mobile visibility.
 
+## Email delivery contract
+
+Email delivery is tracked independently of SMS delivery. Each public SOS
+recipient includes `email` (the contact's email address), `initialEmail` (start
+email submission), and `endedEmail` (end email submission, or null):
+
+```
+email: string;
+initialEmail?: { status, updatedAt, errorCode? };
+endedEmail?: { status, updatedAt, errorCode? } | null;
+```
+
+Email status values are `queued | sending | sent | failed | unknown`. A start
+email is always queued for a contact with an address; contacts without an
+address get `failed` with `errorCode: 'email_unavailable'` instead. An end email
+is queued when an SOS ends, again independent of whether an end SMS was sent.
+SMS acceptance does not imply email delivery, and email acceptance does not
+imply SMS delivery. See `docs/sos-email-delivery.md` for sender configuration
+and failure semantics.
+
 Scheduling queries use the single ascending collection index `sos.deliveryDueAt`,
 explicitly included in `firestore.indexes.json`; no new composite index is needed.
 Records without new delivery evidence are not added to that queue. The existing
