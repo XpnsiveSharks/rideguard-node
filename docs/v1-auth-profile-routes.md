@@ -102,6 +102,60 @@ Firebase sends the password-reset link. The client or Firebase-hosted handler
 applies that link and sets the new password. RideGuard has no reset OTP or
 password-reset action-code endpoint.
 
+## POST /v1/auth/change-password
+
+Authenticated. Verifies the current password server-side via Firebase Auth REST
+`accounts:signInWithPassword` (email from the Admin user record + current
+password + project Web API key), then updates the password with the Admin SDK
+`updateUser({ password })` and revokes refresh tokens so other sessions are
+invalidated. The request bearer token must still be a valid Firebase ID token.
+Passwords and the sign-in `idToken` are never logged or returned.
+
+### Request Body
+
+| Field             | Type   | Required | Notes                                                                 |
+| ----------------- | ------ | -------- | --------------------------------------------------------------------- |
+| `currentPassword` | string | Yes      | Current account password; verified via Identity Toolkit.              |
+| `newPassword`     | string | Yes      | At least 8 characters, one letter, and one number (same as register). |
+
+```json
+{
+  "currentPassword": "Password1",
+  "newPassword": "Password2"
+}
+```
+
+### Success Response (200)
+
+Message: `Password changed successfully`
+
+```json
+{
+  "success": true,
+  "message": "Password changed successfully",
+  "data": {
+    "success": true
+  },
+  "timestamp": "2026-10-30T00:00:00.000Z"
+}
+```
+
+### Errors
+
+| Status | Reason                                                                                          |
+| ------ | ----------------------------------------------------------------------------------------------- |
+| `400`  | Validation failed, new password equals current, or user has no email.                           |
+| `401`  | Missing/invalid Firebase bearer token, or wrong `currentPassword` (`Invalid password.`).        |
+| `429`  | Request exceeded the route throttle limit (5 / 60s).                                            |
+
+Wrong current password uses **401** `UnauthorizedException` with message
+`Invalid password.`, matching `POST /auth/delete-account`. Weak `newPassword`
+values that fail class-validator return `400` with the standard `fields` shape;
+Admin SDK password-rule violations are left unwrapped (same as register).
+
+After a successful change, previously issued refresh tokens no longer work.
+Clients must sign in again with the new password to obtain fresh credentials.
+
 ## GET /v1/auth/me
 
 Returns user identity fields from the verified Firebase ID token.

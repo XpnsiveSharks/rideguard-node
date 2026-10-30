@@ -57,6 +57,19 @@ export class DeleteAccountDto {
   password!: string;
 }
 
+export class ChangePasswordDto {
+  @IsString()
+  currentPassword!: string;
+
+  @IsString()
+  @MinLength(PASSWORD_MIN_LENGTH, {
+    message: `newPassword must be at least ${PASSWORD_MIN_LENGTH} characters`,
+  })
+  @Matches(/[A-Za-z]/, { message: 'newPassword must contain a letter' })
+  @Matches(/\d/, { message: 'newPassword must contain a number' })
+  newPassword!: string;
+}
+
 export class UpdateOnboardingDto {
   @IsOptional()
   @IsString()

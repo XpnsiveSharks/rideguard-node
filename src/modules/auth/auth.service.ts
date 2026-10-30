@@ -22,6 +22,7 @@ import { MailService } from '@/infra/mail/mail.service';
 import { normalizeEmail, normalizeUsername } from './auth.validation';
 import { createHash, randomBytes, randomInt, verify } from 'node:crypto';
 import type {
+  ChangePasswordDto,
   EnrollPhoneKeyDto,
   ForgotPasswordDto,
   LoginDto,
@@ -294,6 +295,53 @@ export class AuthService {
       throw new Error('Password reset service unavailable');
     }
     return { message: RESET_MESSAGE };
+  }
+
+  /**
+   * Authenticated password change: verify current password via Identity Toolkit
+   * signInWithPassword (never trust the client), then Admin SDK updateUser +
+   * revokeRefreshTokens. Does not log passwords or the sign-in idToken.
+   */
+  async changePassword(
+    uid: string,
+    input: ChangePasswordDto,
+  ): Promise<{ success: true }> {
+    if (input.newPassword === input.currentPassword) {
+      throw new BadRequestException('New password must be different from the current password.');
+    }
+
+    const user = await this.auth.getUser(uid);
+    const email = user.email;
+    if (!email) {
+      throw new BadRequestException('User does not have an associated email address.');
+    }
+
+    const response = await fetch(
+      `${this.config.get('FIREBASE_AUTH_API_BASE_URL', { infer: true })}/accounts:signInWithPassword?key=${encodeURIComponent(
+        this.config.get('FIREBASE_WEB_API_KEY', { infer: true }),
+      )}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password: input.currentPassword,
+          returnSecureToken: true,
+        }),
+      },
+    );
+    const body = (await response.json().catch(() => null)) as {
+      localId?: string;
+    } | null;
+
+    if (!response.ok || !body?.localId || body.localId !== uid) {
+      throw new UnauthorizedException('Invalid password.');
+    }
+
+    await this.auth.updateUser(uid, { password: input.newPassword });
+    await this.auth.revokeRefreshTokens(uid);
+
+    return { success: true };
   }
 
   // *** VERIFY FIREBASE ID TOKEN ***

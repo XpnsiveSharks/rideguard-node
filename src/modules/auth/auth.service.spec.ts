@@ -3,6 +3,7 @@ import {
   ConflictException,
   HttpException,
   HttpStatus,
+  UnauthorizedException,
 } from '@nestjs/common';
 import type { Auth } from 'firebase-admin/auth';
 import type { Firestore } from 'firebase-admin/firestore';
@@ -428,5 +429,187 @@ describe('AuthService email verification codes', () => {
     expect(
       (service as unknown as { verifyRegistration?: unknown }).verifyRegistration,
     ).toBeUndefined();
+  });
+});
+
+describe('AuthService change password', () => {
+  function makeConfig(custom: Record<string, unknown> = {}) {
+    const values: Record<string, unknown> = {
+      FIREBASE_AUTH_API_BASE_URL: 'https://identitytoolkit.googleapis.com/v1',
+      FIREBASE_WEB_API_KEY: 'web-key',
+      ...custom,
+    };
+    return {
+      get: jest.fn((key: string) => values[key]),
+    } as never;
+  }
+
+  let originalFetch: typeof global.fetch;
+
+  beforeAll(() => {
+    originalFetch = global.fetch;
+  });
+
+  afterAll(() => {
+    global.fetch = originalFetch;
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('changes password via Admin SDK and revokes refresh tokens', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ localId: 'uid-1' }),
+    });
+
+    const updateUser = jest.fn().mockResolvedValue(undefined);
+    const revokeRefreshTokens = jest.fn().mockResolvedValue(undefined);
+    const service = new AuthService(
+      {
+        getUser: jest.fn().mockResolvedValue({ uid: 'uid-1', email: 'rider@gmail.com' }),
+        updateUser,
+        revokeRefreshTokens,
+      } as unknown as Auth,
+      {} as Rest,
+      {} as Firestore,
+      makeConfig(),
+      { sendVerificationCode: jest.fn() } as never,
+    );
+
+    await expect(
+      service.changePassword('uid-1', {
+        currentPassword: 'Password1',
+        newPassword: 'Password2',
+      }),
+    ).resolves.toEqual({ success: true });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('accounts:signInWithPassword'),
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          email: 'rider@gmail.com',
+          password: 'Password1',
+          returnSecureToken: true,
+        }),
+      }),
+    );
+    expect(updateUser).toHaveBeenCalledWith('uid-1', { password: 'Password2' });
+    expect(revokeRefreshTokens).toHaveBeenCalledWith('uid-1');
+  });
+
+  it('rejects wrong current password with UnauthorizedException (401)', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      json: () => Promise.resolve({ error: { message: 'INVALID_PASSWORD' } }),
+    });
+
+    const updateUser = jest.fn();
+    const revokeRefreshTokens = jest.fn();
+    const service = new AuthService(
+      {
+        getUser: jest.fn().mockResolvedValue({ uid: 'uid-1', email: 'rider@gmail.com' }),
+        updateUser,
+        revokeRefreshTokens,
+      } as unknown as Auth,
+      {} as Rest,
+      {} as Firestore,
+      makeConfig(),
+      { sendVerificationCode: jest.fn() } as never,
+    );
+
+    await expect(
+      service.changePassword('uid-1', {
+        currentPassword: 'WrongPass1',
+        newPassword: 'Password2',
+      }),
+    ).rejects.toThrow(UnauthorizedException);
+    expect(updateUser).not.toHaveBeenCalled();
+    expect(revokeRefreshTokens).not.toHaveBeenCalled();
+  });
+
+  it('rejects new password equal to current password', async () => {
+    const updateUser = jest.fn();
+    const service = new AuthService(
+      {
+        getUser: jest.fn(),
+        updateUser,
+        revokeRefreshTokens: jest.fn(),
+      } as unknown as Auth,
+      {} as Rest,
+      {} as Firestore,
+      makeConfig(),
+      { sendVerificationCode: jest.fn() } as never,
+    );
+
+    await expect(
+      service.changePassword('uid-1', {
+        currentPassword: 'Password1',
+        newPassword: 'Password1',
+      }),
+    ).rejects.toThrow(BadRequestException);
+    expect(updateUser).not.toHaveBeenCalled();
+  });
+
+  it('surfaces Firebase weak-password failures without wrapping', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ localId: 'uid-1' }),
+    });
+
+    const firebaseError = Object.assign(new Error('Password must be a string at least 6 characters.'), {
+      code: 'auth/invalid-password',
+    });
+    const updateUser = jest.fn().mockRejectedValue(firebaseError);
+    const revokeRefreshTokens = jest.fn();
+    const service = new AuthService(
+      {
+        getUser: jest.fn().mockResolvedValue({ uid: 'uid-1', email: 'rider@gmail.com' }),
+        updateUser,
+        revokeRefreshTokens,
+      } as unknown as Auth,
+      {} as Rest,
+      {} as Firestore,
+      makeConfig(),
+      { sendVerificationCode: jest.fn() } as never,
+    );
+
+    await expect(
+      service.changePassword('uid-1', {
+        currentPassword: 'Password1',
+        newPassword: 'ab',
+      }),
+    ).rejects.toBe(firebaseError);
+    expect(revokeRefreshTokens).not.toHaveBeenCalled();
+  });
+
+  it('revokes refresh tokens after a successful password change', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ localId: 'uid-1' }),
+    });
+
+    const revokeRefreshTokens = jest.fn().mockResolvedValue(undefined);
+    const service = new AuthService(
+      {
+        getUser: jest.fn().mockResolvedValue({ uid: 'uid-1', email: 'rider@gmail.com' }),
+        updateUser: jest.fn().mockResolvedValue(undefined),
+        revokeRefreshTokens,
+      } as unknown as Auth,
+      {} as Rest,
+      {} as Firestore,
+      makeConfig(),
+      { sendVerificationCode: jest.fn() } as never,
+    );
+
+    await service.changePassword('uid-1', {
+      currentPassword: 'Password1',
+      newPassword: 'Password2',
+    });
+
+    expect(revokeRefreshTokens).toHaveBeenCalledTimes(1);
+    expect(revokeRefreshTokens).toHaveBeenCalledWith('uid-1');
   });
 });
