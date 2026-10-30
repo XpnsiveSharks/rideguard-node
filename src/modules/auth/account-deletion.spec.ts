@@ -55,7 +55,9 @@ describe('Account Deletion & Grace Period', () => {
         updateUser: jest.fn().mockResolvedValue(undefined),
       } as unknown as Auth;
 
-      const service = new AuthService(auth, {} as Rest, firestore, makeConfig());
+      const service = new AuthService(auth, {} as Rest, firestore, makeConfig(), {
+        sendVerificationCode: jest.fn(),
+      } as never);
       const result = await service.requestAccountDeletion('user-123', 'Password123');
 
       expect(result.scheduled).toBe(true);
@@ -82,7 +84,9 @@ describe('Account Deletion & Grace Period', () => {
         updateUser: jest.fn(),
       } as unknown as Auth;
 
-      const service = new AuthService(auth, {} as Rest, {} as Firestore, makeConfig());
+      const service = new AuthService(auth, {} as Rest, {} as Firestore, makeConfig(), {
+        sendVerificationCode: jest.fn(),
+      } as never);
 
       await expect(service.requestAccountDeletion('user-123', 'WrongPass')).rejects.toThrow(
         UnauthorizedException,
@@ -104,7 +108,9 @@ describe('Account Deletion & Grace Period', () => {
         updateUser: jest.fn().mockResolvedValue(undefined),
       } as unknown as Auth;
 
-      const service = new AuthService(auth, {} as Rest, firestore, makeConfig());
+      const service = new AuthService(auth, {} as Rest, firestore, makeConfig(), {
+        sendVerificationCode: jest.fn(),
+      } as never);
       const result = await service.cancelAccountDeletion('user-123');
 
       expect(result.scheduled).toBe(false);
@@ -131,7 +137,9 @@ describe('Account Deletion & Grace Period', () => {
         })),
       } as unknown as Firestore;
 
-      const service = new AuthService({} as Auth, {} as Rest, firestore, makeConfig());
+      const service = new AuthService({} as Auth, {} as Rest, firestore, makeConfig(), {
+        sendVerificationCode: jest.fn(),
+      } as never);
       const result = await service.getDeletionStatus('user-123');
 
       expect(result.scheduled).toBe(true);
@@ -151,7 +159,9 @@ describe('Account Deletion & Grace Period', () => {
         })),
       } as unknown as Firestore;
 
-      const service = new AuthService({} as Auth, {} as Rest, firestore, makeConfig());
+      const service = new AuthService({} as Auth, {} as Rest, firestore, makeConfig(), {
+        sendVerificationCode: jest.fn(),
+      } as never);
       const result = await service.getDeletionStatus('user-123');
 
       expect(result.scheduled).toBe(false);

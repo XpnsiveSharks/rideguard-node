@@ -13,8 +13,10 @@ import {
   LoginDto,
   PhoneAuthChallengeDto,
   RegisterDto,
+  ResendVerificationCodeDto,
   RevokePhoneKeyDto,
   UpdateOnboardingDto,
+  VerifyEmailCodeDto,
   VerifyPhoneSignatureDto,
 } from './auth.dto';
 import { AllowDuringDeletion } from './account-deletion.decorator';
@@ -48,13 +50,24 @@ export class AuthController {
     return this.authService.register(body);
   }
 
-  // POST /auth/register/verify; Authorization: Bearer <verified Firebase ID token>.
+  // POST /auth/verification/verify; JSON email + 6-digit code (public — code is the auth factor).
   @Public()
-  @Post('register/verify')
+  @Post('verification/verify')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  verifyRegistration(@Req() req: Request) {
-    return this.authService.verifyRegistration(req.headers.authorization);
+  @ResponseMessage('Email verified successfully')
+  verifyEmailCode(@Body() body: VerifyEmailCodeDto) {
+    return this.authService.verifyEmailCode(body);
+  }
+
+  // POST /auth/verification/resend; JSON email. Server-side cooldown + throttler.
+  @Public()
+  @Post('verification/resend')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ResponseMessage('Verification code sent')
+  resendVerificationCode(@Body() body: ResendVerificationCodeDto) {
+    return this.authService.resendVerificationCode(body);
   }
 
   // POST /auth/login; JSON identifier and password.

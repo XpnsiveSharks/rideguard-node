@@ -1,4 +1,4 @@
-import { IsArray, IsEmail, IsOptional, IsString, Matches, MinLength } from 'class-validator';
+import { IsArray, IsEmail, IsOptional, IsString, Length, Matches, MinLength } from 'class-validator';
 import { GMAIL_PATTERN, PASSWORD_MIN_LENGTH, USERNAME_PATTERN } from './auth.validation';
 
 export class RegisterDto {
@@ -19,6 +19,23 @@ export class RegisterDto {
   @Matches(/[A-Za-z]/, { message: 'password must contain a letter' })
   @Matches(/\d/, { message: 'password must contain a number' })
   password!: string;
+}
+
+export class VerifyEmailCodeDto {
+  @IsEmail()
+  @Matches(GMAIL_PATTERN, { message: 'email must use the @gmail.com domain' })
+  email!: string;
+
+  @IsString()
+  @Length(6, 6, { message: 'code must be exactly 6 digits' })
+  @Matches(/^\d{6}$/, { message: 'code must be exactly 6 digits' })
+  code!: string;
+}
+
+export class ResendVerificationCodeDto {
+  @IsEmail()
+  @Matches(GMAIL_PATTERN, { message: 'email must use the @gmail.com domain' })
+  email!: string;
 }
 
 export class LoginDto {

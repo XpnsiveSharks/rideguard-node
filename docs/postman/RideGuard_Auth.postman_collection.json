@@ -12,7 +12,6 @@
     {"key":"password","value":"ReplaceMe123"},
     {"key":"newPassword","value":"ReplaceNew123"},
     {"key":"firebaseIdToken","value":"PASTE_FIREBASE_ID_TOKEN"},
-    {"key":"verificationToken","value":"PASTE_FRESH_VERIFIED_ID_TOKEN"},
     {"key":"contactId","value":"PASTE_CONTACT_ID"}
   ],
   "item": [
@@ -28,22 +27,6 @@
           "name":"Register invalid",
           "request":{"method":"POST","header":[{"key":"Content-Type","value":"application/json"}],"body":{"mode":"raw","raw":"{\"username\":\"bad name\",\"email\":\"not-an-email\",\"password\":\"short\"}","options":{"raw":{"language":"json"}}},"url":"{{baseUrl}}/auth/register","description":"400 with fields."},
           "event":[{"listen":"test","script":{"type":"text","exec":["pm.test('status 400',()=>pm.response.to.have.status(400));","pm.expect(pm.response.json().fields).to.be.an('object');"]}}]
-        }
-      ]
-    },
-    {
-      "name":"Email Verification",
-      "description":"Manual: send/follow the Firebase verification email in a client or Firebase Console, refresh the user, then set verificationToken to its fresh verified ID token. There is no OTP or resend endpoint.",
-      "item":[
-        {
-          "name":"Finalize registration",
-          "request":{"method":"POST","auth":{"type":"bearer","bearer":[{"key":"token","value":"{{firebaseIdToken}}","type":"string"}]},"body":{"mode":"raw","raw":""},"url":"{{baseUrl}}/auth/register/verify","description":"No body. 200 data.uid and data.email; 400 if email is not verified or pending registration expired."},
-          "event":[{"listen":"test","script":{"type":"text","exec":["pm.test('status 200',()=>pm.response.to.have.status(200));","pm.expect(pm.response.json().data.uid).to.be.a('string');"]}}]
-        },
-        {
-          "name":"Finalize without token",
-          "request":{"method":"POST","url":"{{baseUrl}}/auth/register/verify","description":"401 Missing bearer token."},
-          "event":[{"listen":"test","script":{"type":"text","exec":["pm.test('status 401',()=>pm.response.to.have.status(401));"]}}]
         }
       ]
     },
