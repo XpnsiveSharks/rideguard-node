@@ -6,11 +6,19 @@ import { StationsModule } from '../stations/stations.module';
 import { SosService } from './sos.service';
 import { SosRepository } from './infrastructure/sos.repository';
 import { SosDeliveryWorker } from './sos-delivery.worker';
+import { ConfigModule } from '@nestjs/config';
+import { SOS_EMAIL_SENDER, NodemailerSosEmailSender } from '@/infra/email/sos-email.sender';
 
 // ProfileModule is global, so ProfileService needs no import here.
 @Module({
-  imports: [SmsModule, AlertsModule, StationsModule],
+  imports: [SmsModule, AlertsModule, ConfigModule, StationsModule],
   controllers: [SosController, AlertSosController],
-  providers: [SosService, SosRepository, SosDeliveryWorker],
+  providers: [
+    SosService,
+    SosRepository,
+    SosDeliveryWorker,
+    NodemailerSosEmailSender,
+    { provide: SOS_EMAIL_SENDER, useExisting: NodemailerSosEmailSender },
+  ],
 })
 export class SosModule {}

@@ -10,6 +10,11 @@ export type SubmissionSummary = {
   errorCode?: string;
   delivery?: DeliverySummary | null;
 };
+export type EmailSubmission = {
+  status: 'queued' | 'sending' | 'sent' | 'failed' | 'unknown';
+  updatedAt: string;
+  errorCode?: string;
+};
 
 export type LookupError = 'authentication_failed' | 'not_configured' | 'not_found' |
   'rate_limited' | 'timeout' | 'network_error' | 'server_error' | 'malformed_response' |
@@ -45,6 +50,9 @@ export type SosRecipient = {
   contactId: string;
   name: string;
   phone: string;
+  email: string;
+  initialEmail?: EmailSubmission;
+  endedEmail?: EmailSubmission | null;
   initial: SubmissionSummary;
   ended: SubmissionSummary | null;
   // Provider tracking id from the accepted initial send, for delivery checks.

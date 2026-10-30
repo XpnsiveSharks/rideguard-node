@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString, Matches } from 'class-validator';
+import { IsEmail, IsEnum, IsOptional, IsString, Matches } from 'class-validator';
 
 export enum ContactRelationship {
   Parent = 'Parent',
@@ -18,6 +18,9 @@ export class EmergencyContactDto {
   })
   phone!: string;
 
+  @IsEmail()
+  email!: string;
+
   @IsEnum(ContactRelationship)
   relationship!: ContactRelationship;
 }
@@ -32,6 +35,10 @@ export class UpdateEmergencyContactDto {
     message: 'phone must be a +63 Philippine mobile number with 10 digits',
   })
   phone?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
 
   @IsOptional()
   @IsEnum(ContactRelationship)
