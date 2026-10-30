@@ -9,6 +9,9 @@
 }
 ```
 
+`readAt` and `readByUid` are projected from the requesting station's receipt. Reading an
+incident at one notified station does not change another station's unread state.
+
 Query parameters:
 
 - `stationId`: required for station administrators; operators always use their token claim.

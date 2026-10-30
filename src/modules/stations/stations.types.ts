@@ -29,6 +29,11 @@ export type StationRecipient = {
   notifiedAt: string;
 };
 
+export type IncidentReadReceipt = {
+  readAt: string;
+  readByUid: string;
+};
+
 export type AuthorityIncident = {
   id: string;
   sosId: string;
@@ -58,4 +63,8 @@ export type AuthorityIncident = {
 export type AuthorityIncidentPage = {
   data: AuthorityIncident[];
   nextCursor: string | null;
+};
+
+export type AuthorityIncidentDocument = Omit<AuthorityIncident, 'readAt' | 'readByUid'> & {
+  readReceipts: Record<string, IncidentReadReceipt>;
 };

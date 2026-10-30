@@ -8,7 +8,7 @@ import type { Request } from 'express';
 import type { Firestore } from 'firebase-admin/firestore';
 import { StationsController } from './stations.controller';
 import { StationsService } from './stations.service';
-import type { AuthorityIncident, Station } from './stations.types';
+import type { AuthorityIncident, AuthorityIncidentDocument, Station } from './stations.types';
 
 type Data = Record<string, unknown>;
 
@@ -145,8 +145,7 @@ function newIncident(): Data {
     leadStationId: null,
     acknowledgedAt: null,
     acknowledgedByUid: null,
-    readAt: null,
-    readByUid: null,
+    readReceipts: {},
   };
 }
 
@@ -180,7 +179,7 @@ describe('StationsService', () => {
       barangay: 'Barangay Commonwealth',
       police: 'North Fairview Police Station',
     });
-    expect(incident.readAt).toBeNull();
+    expect(incident.readReceipts).toEqual({});
   });
 
   it('rejects missing locations before routing', () => {
@@ -256,7 +255,7 @@ describe('StationsService', () => {
       ['station-a', ['nearest']],
     ]);
     expect(stored).toMatchObject({ status: 'new', riderName: 'Maria Santos', leadStationId: null });
-    expect(stored.readAt).toBeNull();
+    expect(stored.readReceipts).toEqual({});
 
     await expect(service.openIncidentForSos(input)).resolves.toBe('exists');
   });
@@ -341,8 +340,7 @@ describe('StationsService', () => {
 
   it('paginates incidents and normalizes legacy read fields', async () => {
     const legacy = newIncident();
-    delete legacy.readAt;
-    delete legacy.readByUid;
+    delete legacy.readReceipts;
     const { firestore } = makeFirestore({
       'authority_incidents/incident-2': {
         ...legacy,
@@ -365,8 +363,6 @@ describe('StationsService', () => {
 
   it('marks an incident as read', async () => {
     const current = { ...newIncident(), status: 'responding', revision: 4 };
-    delete current.readAt;
-    delete current.readByUid;
     const { firestore, docs } = makeFirestore({
       'authority_incidents/incident-1': current,
     });
@@ -379,9 +375,41 @@ describe('StationsService', () => {
     expect(updated.status).toBe('responding');
     expect(updated.revision).toBe(5);
 
-    const stored = docs.get('authority_incidents/incident-1') as AuthorityIncident;
-    expect(stored.readAt).not.toBeNull();
-    expect(stored.readByUid).toBe('operator-1');
+    const stored = docs.get('authority_incidents/incident-1') as AuthorityIncidentDocument;
+    expect(stored.readReceipts['station-a'].readAt).toBe(updated.readAt);
+    expect(stored.readReceipts['station-a'].readByUid).toBe('operator-1');
+  });
+
+  it('keeps read receipts independent for each notified station', async () => {
+    const incident = {
+      ...newIncident(),
+      notifiedStationIds: ['station-a', 'station-b'],
+      notifiedRecipients: [
+        ...(newIncident().notifiedRecipients as Data[]),
+        {
+          stationId: 'station-b',
+          stationName: 'North Fairview Police Station',
+          reasons: ['police'],
+          notifiedAt: '2026-10-29T01:00:00.000Z',
+        },
+      ],
+    };
+    const { firestore, docs } = makeFirestore({
+      'authority_incidents/incident-1': incident,
+    });
+    const service = new StationsService(firestore);
+
+    await service.markIncidentRead('incident-1', 'station-a', 'operator-a');
+    const stationA = await service.listIncidents('station-a', 50);
+    const stationBBeforeRead = await service.listIncidents('station-b', 50);
+    expect(stationA.data[0].readByUid).toBe('operator-a');
+    expect(stationBBeforeRead.data[0]).toMatchObject({ readAt: null, readByUid: null });
+
+    await service.markIncidentRead('incident-1', 'station-b', 'operator-b');
+    const stored = docs.get('authority_incidents/incident-1') as AuthorityIncidentDocument;
+    expect(Object.keys(stored.readReceipts).sort()).toEqual(['station-a', 'station-b']);
+    expect(stored.readReceipts['station-a'].readByUid).toBe('operator-a');
+    expect(stored.readReceipts['station-b'].readByUid).toBe('operator-b');
   });
 
   it('refuses a station that was not notified to mark an incident read', async () => {

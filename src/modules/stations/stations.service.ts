@@ -12,10 +12,16 @@ import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
 import { resolveStationRecipients } from './stations.routing';
 import type {
   AuthorityIncident,
+  AuthorityIncidentDocument,
   AuthorityIncidentPage,
   Station,
   StationLocation,
 } from './stations.types';
+
+type StoredAuthorityIncident = Partial<AuthorityIncidentDocument> & {
+  readAt?: string | null;
+  readByUid?: string | null;
+};
 
 export type ProjectIncidentInput = {
   sosId: string;
@@ -37,17 +43,25 @@ export class StationsService {
 
   private toIncident(
     id: string,
-    data: Omit<AuthorityIncident, 'id'> | Partial<AuthorityIncident>,
+    data: StoredAuthorityIncident,
+    stationId?: string,
   ): AuthorityIncident {
     const notifiedRecipients = data.notifiedRecipients ?? [];
+    const receipt = stationId ? data.readReceipts?.[stationId] : undefined;
+    const {
+      readReceipts: _readReceipts,
+      readAt: _legacyReadAt,
+      readByUid: _legacyReadByUid,
+      ...incident
+    } = data;
     return {
-      ...data,
+      ...incident,
       id,
       notifiedRecipients,
       notifiedStationIds:
         data.notifiedStationIds ?? notifiedRecipients.map((recipient) => recipient.stationId),
-      readAt: data.readAt ?? null,
-      readByUid: data.readByUid ?? null,
+      readAt: receipt?.readAt ?? null,
+      readByUid: receipt?.readByUid ?? null,
     } as AuthorityIncident;
   }
 
@@ -69,7 +83,7 @@ export class StationsService {
     return resolveStationRecipients({ stations, location, coverageLabels, notifiedAt });
   }
 
-  projectIncident(input: ProjectIncidentInput): AuthorityIncident {
+  projectIncident(input: ProjectIncidentInput): AuthorityIncidentDocument {
     const receivedAt = input.receivedAt ?? new Date().toISOString();
 
     if (!input.location) {
@@ -84,7 +98,7 @@ export class StationsService {
     });
 
     const incidentId = `incident-${input.sosId}`;
-    const nextIncident: AuthorityIncident = {
+    const nextIncident: AuthorityIncidentDocument = {
       id: incidentId,
       sosId: input.sosId,
       revision: 1,
@@ -101,8 +115,7 @@ export class StationsService {
       leadStationId: null,
       acknowledgedAt: null,
       acknowledgedByUid: null,
-      readAt: null,
-      readByUid: null,
+      readReceipts: {},
       callbackNumber: input.callbackNumber ?? null,
       riderName: input.riderName ?? null,
       vehicleSummary: input.vehicleSummary ?? null,
@@ -167,15 +180,15 @@ export class StationsService {
         transaction.get(stationRef),
       ]);
 
-      const incident = incidentSnapshot.data() as Partial<AuthorityIncident> | undefined;
+      const incident = incidentSnapshot.data() as StoredAuthorityIncident | undefined;
       const station = stationSnapshot.data() as Partial<Station> | undefined;
 
       if (!incident) {
         throw new NotFoundException('Incident not found.');
       }
 
-      const current = this.toIncident(incidentRef.id, incident);
-      if (incident.status === 'resolved') {
+      const current = this.toIncident(incidentRef.id, incident, input.stationId);
+      if (current.status === 'resolved') {
         throw new ConflictException('This incident is already resolved.');
       }
       if (current.leadStationId && current.leadStationId !== input.stationId) {
@@ -211,7 +224,17 @@ export class StationsService {
         acknowledgedByUid: input.actorUid,
       };
 
-      transaction.set(incidentRef, next, { merge: true });
+      transaction.set(
+        incidentRef,
+        {
+          revision: next.revision,
+          status: next.status,
+          leadStationId: next.leadStationId,
+          acknowledgedAt: next.acknowledgedAt,
+          acknowledgedByUid: next.acknowledgedByUid,
+        },
+        { merge: true },
+      );
       return next;
     });
 
@@ -231,9 +254,9 @@ export class StationsService {
 
     if (cursor) {
       const cursorDocument = await incidents.doc(cursor).get();
-      const cursorData = cursorDocument.data() as Partial<AuthorityIncident> | undefined;
+      const cursorData = cursorDocument.data() as StoredAuthorityIncident | undefined;
       const cursorIncident = cursorData
-        ? this.toIncident(cursorDocument.id, cursorData)
+        ? this.toIncident(cursorDocument.id, cursorData, stationId)
         : undefined;
       if (
         !cursorDocument.exists ||
@@ -249,7 +272,7 @@ export class StationsService {
     const hasMore = snapshot.docs.length > limit;
     const pageDocuments = snapshot.docs.slice(0, limit);
     const data = pageDocuments
-      .map((doc) => this.toIncident(doc.id, doc.data() as Partial<AuthorityIncident>))
+      .map((doc) => this.toIncident(doc.id, doc.data() as StoredAuthorityIncident, stationId))
       .filter((incident) => this.isNotifiedStation(incident, stationId));
     return {
       data,
@@ -265,23 +288,36 @@ export class StationsService {
     const incidentRef = this.firestore.collection('authority_incidents').doc(incidentId);
     return this.firestore.runTransaction(async (transaction) => {
       const snapshot = await transaction.get(incidentRef);
-      const data = snapshot.data() as Partial<AuthorityIncident> | undefined;
+      const data = snapshot.data() as StoredAuthorityIncident | undefined;
       if (!snapshot.exists || !data) {
         throw new NotFoundException('Incident not found.');
       }
 
-      const incident = this.toIncident(incidentRef.id, data);
+      const incident = this.toIncident(incidentRef.id, data, stationId);
       if (!this.isNotifiedStation(incident, stationId)) {
         throw new ForbiddenException('This station is not a notified recipient for the incident.');
       }
 
-      const next: AuthorityIncident = {
-        ...incident,
+      const readReceipt = {
         readAt: new Date().toISOString(),
         readByUid: actorUid,
+      };
+      const next: AuthorityIncident = {
+        ...incident,
+        ...readReceipt,
         revision: (incident.revision ?? 0) + 1,
       };
-      transaction.set(incidentRef, next, { merge: true });
+      transaction.set(
+        incidentRef,
+        {
+          readReceipts: {
+            ...(data.readReceipts ?? {}),
+            [stationId]: readReceipt,
+          },
+          revision: next.revision,
+        },
+        { merge: true },
+      );
       return next;
     });
   }

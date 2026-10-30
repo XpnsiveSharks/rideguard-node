@@ -54,8 +54,7 @@ async function backfill(db: FirebaseFirestore.Firestore, startAfterId?: string) 
           )
           .filter((stationId): stationId is string => typeof stationId === 'string');
       }
-      if (data.readAt === undefined) patch.readAt = null;
-      if (data.readByUid === undefined) patch.readByUid = null;
+      if (data.readReceipts === undefined) patch.readReceipts = {};
 
       if (Object.keys(patch).length > 0) {
         batch.update(document.ref, patch);
