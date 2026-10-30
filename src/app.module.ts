@@ -11,6 +11,7 @@ import { ResponseInterceptor } from './common/interceptors/response.interceptor'
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ProfileModule } from './modules/profile/profile.module';
 import { FirebaseModule } from './infra/firebase/firebase.module';
+import { MailModule } from './infra/mail/mail.module';
 import { AblyModule } from './infra/ably/ably.module';
 import { APP_PIPE } from '@nestjs/core';
 import { AppValidationPipe } from './common/pipes/app-validation.pipe';
@@ -21,6 +22,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { SettingsModule } from './modules/settings/settings.module';
 import { SosModule } from './modules/sos/sos.module';
 import { MpinModule } from './modules/mpin/mpin.module';
+import { StationsModule } from './modules/stations/stations.module';
 
 @Module({
   imports: [
@@ -34,6 +36,7 @@ import { MpinModule } from './modules/mpin/mpin.module';
     AuthModule,
     HealthModule,
     FirebaseModule,
+    MailModule,
     AblyModule,
     ProfileModule,
     DevicesModule,
@@ -43,6 +46,7 @@ import { MpinModule } from './modules/mpin/mpin.module';
     SettingsModule,
     SosModule,
     MpinModule,
+    StationsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

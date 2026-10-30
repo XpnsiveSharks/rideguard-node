@@ -18,21 +18,25 @@ import { ABLY_REST } from '@/infra/ably/ably.constants';
 import type { Rest, TokenRequest } from 'ably';
 import { REALTIME_CHANNELS } from '@/modules/realtime/realtime.constants';
 import { ONE_HOUR_IN_MILLISECONDS } from '@/common/constants/time.constants';
+import { MailService } from '@/infra/mail/mail.service';
 import { normalizeEmail, normalizeUsername } from './auth.validation';
-import { randomBytes, verify } from 'node:crypto';
+import { createHash, randomBytes, randomInt, verify } from 'node:crypto';
 import type {
-  DeleteAccountDto,
+  ChangePasswordDto,
   EnrollPhoneKeyDto,
   ForgotPasswordDto,
   LoginDto,
   PhoneAuthChallengeDto,
   RegisterDto,
+  ResendVerificationCodeDto,
   RevokePhoneKeyDto,
   UpdateOnboardingDto,
+  VerifyEmailCodeDto,
   VerifyPhoneSignatureDto,
 } from './auth.dto';
 import { MPIN_ACCOUNTS } from '@/modules/mpin/mpin.constants';
 import {
+  EMAIL_VERIFICATION_CODES_COLLECTION,
   REGISTRATION_PENDING_COLLECTION,
   REGISTRATION_PENDING_TTL_MS,
 } from './registration.constants';
@@ -45,12 +49,23 @@ const RESET_EMAIL_WINDOW_MS = 60_000;
 const RESET_EMAIL_LIMIT = 3;
 const REGISTRATION_EMAIL_WINDOW_MS = 60_000;
 const REGISTRATION_EMAIL_LIMIT = 5;
+
 type PendingRegistration = {
   uid: string;
   username: string;
   email: string;
   expiresAt: { toDate(): Date };
 };
+
+type EmailVerificationCodeDoc = {
+  codeHash: string;
+  expiresAt: Date | { toDate(): Date };
+  attempts: number;
+  createdAt: Date | { toDate(): Date };
+  lastSentAt?: Date | { toDate(): Date } | null;
+  consumedAt?: Date | { toDate(): Date } | null;
+};
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -58,6 +73,7 @@ export class AuthService {
     @Inject(ABLY_REST) private readonly ably: Rest,
     @Inject(FIREBASE_FIRESTORE) private readonly firestore: Firestore,
     private readonly config: ConfigService<EnvironmentVariables, true>,
+    private readonly mail: MailService,
   ) {}
 
   private readonly resetAttempts = new Map<string, number[]>();
@@ -112,42 +128,102 @@ export class AuthService {
       if (uid) await this.auth.deleteUser(uid).catch(() => undefined);
       throw error;
     }
+
+    // Account is committed; send failure leaves the pending user so resend can retry.
+    await this.issueAndSendVerificationCode(uid, email);
     return { email };
   }
 
-  async verifyRegistration(authorization?: string): Promise<{ uid: string; email: string }> {
-    if (!authorization?.startsWith('Bearer ')) {
-      throw new UnauthorizedException('Missing bearer token');
+  /**
+   * Public verify: register does not return an idToken, so the 6-digit code
+   * (plus email) is the auth factor. On success sets Firebase emailVerified
+   * and finalizes the RideGuard profile.
+   */
+  async verifyEmailCode(input: VerifyEmailCodeDto): Promise<{ uid: string; email: string }> {
+    const email = normalizeEmail(input.email);
+    const user = await this.findFirebaseUserByEmail(email);
+    if (!user) {
+      throw new BadRequestException('Invalid verification code.');
     }
-    const token = await this.verifyToken(authorization.slice(7));
-    const user = await this.auth.getUser(token.uid);
-    const email = normalizeEmail(user.email ?? '');
-    if (!user.emailVerified || !email) {
-      throw new BadRequestException('Email verification has not been completed.');
+    if (user.emailVerified) {
+      throw new ConflictException('Email is already verified.');
     }
-    const pendingRef = this.firestore.collection(REGISTRATION_PENDING_COLLECTION).doc(email);
-    const snapshot = await pendingRef.get();
-    const pending = snapshot.exists ? (snapshot.data() as PendingRegistration) : undefined;
-    if (!pending || pending.uid !== token.uid || pending.expiresAt.toDate() <= new Date()) {
-      if (snapshot.exists) await pendingRef.delete();
-      throw new BadRequestException('Registration is no longer pending.');
+
+    const codeRef = this.firestore.collection(EMAIL_VERIFICATION_CODES_COLLECTION).doc(user.uid);
+    const snapshot = await codeRef.get();
+    const stored = snapshot.exists ? (snapshot.data() as EmailVerificationCodeDoc) : undefined;
+    if (!stored || stored.consumedAt) {
+      throw new BadRequestException('Invalid verification code.');
     }
-    const profileRef = this.firestore.collection(PROFILES_COLLECTION).doc(token.uid);
-    const profile = await profileRef.get();
-    if (!profile.exists) {
-      await profileRef.create({
-        uid: token.uid,
-        username: pending.username,
-        email: pending.email,
-        createdAt: FieldValue.serverTimestamp(),
-      });
+
+    const now = new Date();
+    const expiresAt = this.toDate(stored.expiresAt);
+    if (!expiresAt || expiresAt <= now) {
+      await codeRef.delete().catch(() => undefined);
+      throw new BadRequestException('Verification code has expired.');
     }
-    await this.firestore
-      .collection(USERNAMES_COLLECTION)
-      .doc(pending.username)
-      .set({ uid: token.uid, email: pending.email }, { merge: true });
-    await pendingRef.delete();
-    return { uid: token.uid, email: pending.email };
+
+    const maxAttempts = this.config.get('VERIFICATION_CODE_MAX_ATTEMPTS', { infer: true });
+    if (stored.attempts >= maxAttempts) {
+      await codeRef.delete().catch(() => undefined);
+      throw new HttpException(
+        'Too many verification attempts. Request a new code.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const expectedHash = this.hashVerificationCode(input.code, user.uid);
+    if (stored.codeHash !== expectedHash) {
+      const nextAttempts = stored.attempts + 1;
+      if (nextAttempts >= maxAttempts) {
+        await codeRef.delete().catch(() => undefined);
+        throw new HttpException(
+          'Too many verification attempts. Request a new code.',
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+      await codeRef.set({ attempts: nextAttempts }, { merge: true });
+      throw new BadRequestException('Invalid verification code.');
+    }
+
+    await this.auth.updateUser(user.uid, { emailVerified: true });
+    const finalized = await this.finalizePendingRegistration(user.uid, email);
+    await codeRef.set({ consumedAt: now }, { merge: true });
+    await codeRef.delete().catch(() => undefined);
+    return finalized;
+  }
+
+  async resendVerificationCode(input: ResendVerificationCodeDto): Promise<{ email: string }> {
+    const email = normalizeEmail(input.email);
+    const user = await this.findFirebaseUserByEmail(email);
+    if (!user) {
+      // Same generic shape as a successful resend to avoid account enumeration.
+      return { email };
+    }
+    if (user.emailVerified) {
+      throw new ConflictException('Email is already verified.');
+    }
+
+    const codeRef = this.firestore.collection(EMAIL_VERIFICATION_CODES_COLLECTION).doc(user.uid);
+    const snapshot = await codeRef.get();
+    const existing = snapshot.exists ? (snapshot.data() as EmailVerificationCodeDoc) : undefined;
+    const cooldownSeconds = this.config.get('VERIFICATION_RESEND_COOLDOWN_SECONDS', { infer: true });
+    const lastSentAt = this.toDate(existing?.lastSentAt);
+    if (lastSentAt) {
+      const earliestResend = lastSentAt.getTime() + cooldownSeconds * 1000;
+      if (Date.now() < earliestResend) {
+        throw new HttpException(
+          'Verification code was recently sent. Try again later.',
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+    }
+
+    if (snapshot.exists) {
+      await codeRef.delete().catch(() => undefined);
+    }
+    await this.issueAndSendVerificationCode(user.uid, email);
+    return { email };
   }
 
   async login(input: LoginDto): Promise<{ uid: string; email: string }> {
@@ -221,6 +297,53 @@ export class AuthService {
     return { message: RESET_MESSAGE };
   }
 
+  /**
+   * Authenticated password change: verify current password via Identity Toolkit
+   * signInWithPassword (never trust the client), then Admin SDK updateUser +
+   * revokeRefreshTokens. Does not log passwords or the sign-in idToken.
+   */
+  async changePassword(
+    uid: string,
+    input: ChangePasswordDto,
+  ): Promise<{ success: true }> {
+    if (input.newPassword === input.currentPassword) {
+      throw new BadRequestException('New password must be different from the current password.');
+    }
+
+    const user = await this.auth.getUser(uid);
+    const email = user.email;
+    if (!email) {
+      throw new BadRequestException('User does not have an associated email address.');
+    }
+
+    const response = await fetch(
+      `${this.config.get('FIREBASE_AUTH_API_BASE_URL', { infer: true })}/accounts:signInWithPassword?key=${encodeURIComponent(
+        this.config.get('FIREBASE_WEB_API_KEY', { infer: true }),
+      )}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          password: input.currentPassword,
+          returnSecureToken: true,
+        }),
+      },
+    );
+    const body = (await response.json().catch(() => null)) as {
+      localId?: string;
+    } | null;
+
+    if (!response.ok || !body?.localId || body.localId !== uid) {
+      throw new UnauthorizedException('Invalid password.');
+    }
+
+    await this.auth.updateUser(uid, { password: input.newPassword });
+    await this.auth.revokeRefreshTokens(uid);
+
+    return { success: true };
+  }
+
   // *** VERIFY FIREBASE ID TOKEN ***
   verifyToken(token: string, checkRevoked = false): Promise<DecodedIdToken> {
     return this.auth.verifyIdToken(token, checkRevoked);
@@ -254,6 +377,59 @@ export class AuthService {
     }
     attempts.push(now);
     store.set(email, attempts);
+  }
+
+  private hashVerificationCode(code: string, uid: string): string {
+    const pepper = this.config.get('VERIFICATION_CODE_PEPPER', { infer: true });
+    return createHash('sha256').update(`${code}${uid}${pepper}`, 'utf8').digest('hex');
+  }
+
+  private async issueAndSendVerificationCode(uid: string, email: string): Promise<void> {
+    const ttlMinutes = this.config.get('VERIFICATION_CODE_TTL_MINUTES', { infer: true });
+    const now = new Date();
+    const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+    const codeRef = this.firestore.collection(EMAIL_VERIFICATION_CODES_COLLECTION).doc(uid);
+
+    await codeRef.set({
+      codeHash: this.hashVerificationCode(code, uid),
+      expiresAt: new Date(now.getTime() + ttlMinutes * 60_000),
+      attempts: 0,
+      createdAt: now,
+      lastSentAt: null,
+      consumedAt: null,
+    });
+
+    await this.mail.sendVerificationCode(email, code);
+    await codeRef.set({ lastSentAt: new Date() }, { merge: true });
+  }
+
+  private async finalizePendingRegistration(
+    uid: string,
+    email: string,
+  ): Promise<{ uid: string; email: string }> {
+    const pendingRef = this.firestore.collection(REGISTRATION_PENDING_COLLECTION).doc(email);
+    const snapshot = await pendingRef.get();
+    const pending = snapshot.exists ? (snapshot.data() as PendingRegistration) : undefined;
+    if (!pending || pending.uid !== uid || pending.expiresAt.toDate() <= new Date()) {
+      if (snapshot.exists) await pendingRef.delete();
+      throw new BadRequestException('Registration is no longer pending.');
+    }
+    const profileRef = this.firestore.collection(PROFILES_COLLECTION).doc(uid);
+    const profile = await profileRef.get();
+    if (!profile.exists) {
+      await profileRef.create({
+        uid,
+        username: pending.username,
+        email: pending.email,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }
+    await this.firestore
+      .collection(USERNAMES_COLLECTION)
+      .doc(pending.username)
+      .set({ uid, email: pending.email }, { merge: true });
+    await pendingRef.delete();
+    return { uid, email: pending.email };
   }
 
   // *** ACCOUNT DELETION ***

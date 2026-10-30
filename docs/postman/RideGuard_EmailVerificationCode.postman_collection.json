@@ -1,0 +1,281 @@
+{
+  "info": {
+    "_postman_id": "rideguard-email-verification-code-v1",
+    "name": "RideGuard Email Verification Code",
+    "description": "Registration email verification via emailed 6-digit codes (Nodemailer). Read the code from Mailtrap/Ethereal — the API never returns or logs it.\n\nAssert: RideGuard_Auth no longer contains /auth/register/verify requests (old Firebase link finalization).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5565/v1" },
+    { "key": "username", "value": "verify.user" },
+    { "key": "email", "value": "replace-with-test-gmail@gmail.com" },
+    { "key": "password", "value": "ReplaceMe123" },
+    { "key": "verificationCode", "value": "PASTE_CODE_FROM_INBOX" },
+    { "key": "wrongCode", "value": "000000" },
+    { "key": "firebaseIdToken", "value": "PASTE_FIREBASE_ID_TOKEN_AFTER_VERIFY" }
+  ],
+  "item": [
+    {
+      "name": "1 Register (code auto-sent)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"username\":\"{{username}}\",\"email\":\"{{email}}\",\"password\":\"{{password}}\"}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/auth/register",
+        "description": "202 data.email. Creates unverified Firebase user, stores hashed code, emails plaintext code via SMTP."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text",
+            "exec": [
+              "pm.test('status 202', () => pm.response.to.have.status(202));",
+              "const body = pm.response.json();",
+              "pm.test('success envelope', () => {",
+              "  pm.expect(body.success).to.eql(true);",
+              "  pm.expect(body.data.email).to.eql(pm.collectionVariables.get('email'));",
+              "  pm.expect(body.data).to.not.have.property('idToken');",
+              "  pm.expect(body.data).to.not.have.property('verificationLink');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2 Verify success",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"email\":\"{{email}}\",\"code\":\"{{verificationCode}}\"}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/auth/verification/verify",
+        "description": "Paste verificationCode from Mailtrap/Ethereal. 200 data.uid and data.email; sets Firebase emailVerified and creates profile."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text",
+            "exec": [
+              "pm.test('status 200', () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test('success envelope', () => {",
+              "  pm.expect(body.success).to.eql(true);",
+              "  pm.expect(body.message).to.eql('Email verified successfully');",
+              "  pm.expect(body.data.uid).to.be.a('string');",
+              "  pm.expect(body.data.email).to.eql(pm.collectionVariables.get('email'));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3 Verify wrong code",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"email\":\"{{email}}\",\"code\":\"{{wrongCode}}\"}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/auth/verification/verify",
+        "description": "Run against an unverified account with a live code. Expect 400 Invalid verification code."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text",
+            "exec": [
+              "pm.test('status 400', () => pm.response.to.have.status(400));",
+              "const body = pm.response.json();",
+              "pm.test('error envelope', () => {",
+              "  pm.expect(body.success).to.eql(false);",
+              "  pm.expect(body.message).to.eql('Invalid verification code.');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4 Verify expired code",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"email\":\"{{email}}\",\"code\":\"{{verificationCode}}\"}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/auth/verification/verify",
+        "description": "Wait until VERIFICATION_CODE_TTL_MINUTES elapses (or temporarily set TTL to 1 and wait), then run. Expect 400 Verification code has expired."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text",
+            "exec": [
+              "pm.test('status 400', () => pm.response.to.have.status(400));",
+              "const body = pm.response.json();",
+              "pm.test('error envelope', () => {",
+              "  pm.expect(body.success).to.eql(false);",
+              "  pm.expect(body.message).to.eql('Verification code has expired.');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5 Verify after attempts exceeded",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"email\":\"{{email}}\",\"code\":\"{{wrongCode}}\"}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/auth/verification/verify",
+        "description": "Submit wrong codes until VERIFICATION_CODE_MAX_ATTEMPTS (default 5). Final attempt returns 429 and invalidates the code."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text",
+            "exec": [
+              "pm.test('status 429', () => pm.response.to.have.status(429));",
+              "const body = pm.response.json();",
+              "pm.test('error envelope', () => {",
+              "  pm.expect(body.success).to.eql(false);",
+              "  pm.expect(body.message).to.match(/Too many verification attempts/);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "6 Resend within cooldown",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"email\":\"{{email}}\"}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/auth/verification/resend",
+        "description": "Call immediately after register or a successful resend. Expect 429 cooldown."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text",
+            "exec": [
+              "pm.test('status 429', () => pm.response.to.have.status(429));",
+              "const body = pm.response.json();",
+              "pm.test('error envelope', () => {",
+              "  pm.expect(body.success).to.eql(false);",
+              "  pm.expect(body.message).to.match(/recently sent/);",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7 Resend after cooldown",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"email\":\"{{email}}\"}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": "{{baseUrl}}/auth/verification/resend",
+        "description": "Wait VERIFICATION_RESEND_COOLDOWN_SECONDS (default 60). 200 data.email; prior code invalidated; new code in inbox."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text",
+            "exec": [
+              "pm.test('status 200', () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test('success envelope', () => {",
+              "  pm.expect(body.success).to.eql(true);",
+              "  pm.expect(body.data.email).to.eql(pm.collectionVariables.get('email'));",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "8 Onboarding-gated follow-up (GET /auth/me)",
+      "request": {
+        "method": "GET",
+        "auth": {
+          "type": "bearer",
+          "bearer": [{ "key": "token", "value": "{{firebaseIdToken}}", "type": "string" }]
+        },
+        "url": "{{baseUrl}}/auth/me",
+        "description": "After verify, sign in with the Firebase client SDK (or Identity Toolkit) to obtain a fresh ID token with email_verified=true, set firebaseIdToken, then call this gated route."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text",
+            "exec": [
+              "pm.test('status 200', () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test('verified session', () => {",
+              "  pm.expect(body.success).to.eql(true);",
+              "  pm.expect(body.data.emailVerified).to.eql(true);",
+              "  pm.expect(body.data.uid).to.be.a('string');",
+              "});"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "9 Old link endpoint is absent (404)",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/auth/register/verify",
+        "description": "Removed link-flow finalization. Expect Nest 404. Also confirm RideGuard_Auth has no request whose URL contains /auth/register/verify."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text",
+            "exec": [
+              "pm.test('status 404', () => pm.response.to.have.status(404));"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -41,6 +41,7 @@ import type {
 import { idleRefresh } from './sos.types';
 import { acceptedWork, endEligible, needsRecovery } from './sos-delivery';
 import { SosDeliveryWorker } from './sos-delivery.worker';
+import { StationsService } from '../stations/stations.service';
 
 const FALLBACK_NAME = 'A RideGuard user';
 
@@ -70,6 +71,7 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
     private readonly configService: ConfigService<EnvironmentVariables, true>,
     private readonly alertsService: AlertsService,
     private readonly deliveryWorker: SosDeliveryWorker,
+    private readonly stationsService: StationsService,
     @Optional() @Inject(SOS_EMAIL_SENDER) private readonly emailSender?: SosEmailSender,
   ) {}
 
@@ -226,8 +228,27 @@ export class SosService implements OnModuleInit, OnModuleDestroy {
 
     if (outcome.kind === 'created') {
       void this.dispatchInitial(outcome.record);
+      void this.openIncident(outcome.record);
     }
     return { sos: this.toPublic(outcome.record), created: outcome.kind === 'created' };
+  }
+
+  // Station routing never blocks or delays contact SMS. An SOS without a
+  // location cannot be routed, so it gets no incident.
+  private async openIncident(record: SosRecord): Promise<void> {
+    if (!record.location) return;
+    try {
+      const result = await this.stationsService.openIncidentForSos({
+        sosId: record.sosId,
+        location: record.location,
+        riderName: record.requesterName,
+        receivedAt: record.createdAt,
+      });
+      if (result === 'no_stations')
+        this.logger.warn(`SOS ${record.sosId}: no available station to notify`);
+    } catch {
+      this.logger.error(`SOS ${record.sosId}: incident projection failed`);
+    }
   }
 
   async getActive(uid: string): Promise<PublicSos | null> {
