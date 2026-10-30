@@ -1,6 +1,15 @@
 {
   "indexes": [
     {
+      "collectionGroup": "authority_incidents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "notifiedStationIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "receivedAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "alerts",
       "queryScope": "COLLECTION",
       "fields": [

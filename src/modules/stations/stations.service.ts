@@ -7,10 +7,15 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import type { Firestore } from 'firebase-admin/firestore';
+import { FieldPath, type Firestore } from 'firebase-admin/firestore';
 import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
 import { resolveStationRecipients } from './stations.routing';
-import type { AuthorityIncident, Station, StationLocation } from './stations.types';
+import type {
+  AuthorityIncident,
+  AuthorityIncidentPage,
+  Station,
+  StationLocation,
+} from './stations.types';
 
 export type ProjectIncidentInput = {
   sosId: string;
@@ -29,6 +34,26 @@ export type ProjectIncidentInput = {
 @Injectable()
 export class StationsService {
   constructor(@Inject(FIREBASE_FIRESTORE) private readonly firestore: Firestore) {}
+
+  private toIncident(
+    id: string,
+    data: Omit<AuthorityIncident, 'id'> | Partial<AuthorityIncident>,
+  ): AuthorityIncident {
+    const notifiedRecipients = data.notifiedRecipients ?? [];
+    return {
+      ...data,
+      id,
+      notifiedRecipients,
+      notifiedStationIds:
+        data.notifiedStationIds ?? notifiedRecipients.map((recipient) => recipient.stationId),
+      readAt: data.readAt ?? null,
+      readByUid: data.readByUid ?? null,
+    } as AuthorityIncident;
+  }
+
+  private isNotifiedStation(incident: AuthorityIncident, stationId: string): boolean {
+    return incident.notifiedRecipients.some((recipient) => recipient.stationId === stationId);
+  }
 
   resolveRecipients({
     stations,
@@ -72,9 +97,12 @@ export class StationsService {
         police: recipients.find((r) => r.reasons.includes('police'))?.stationName ?? null,
       },
       notifiedRecipients: recipients,
+      notifiedStationIds: recipients.map((recipient) => recipient.stationId),
       leadStationId: null,
       acknowledgedAt: null,
       acknowledgedByUid: null,
+      readAt: null,
+      readByUid: null,
       callbackNumber: input.callbackNumber ?? null,
       riderName: input.riderName ?? null,
       vehicleSummary: input.vehicleSummary ?? null,
@@ -146,7 +174,7 @@ export class StationsService {
         throw new NotFoundException('Incident not found.');
       }
 
-      const current = incident as AuthorityIncident;
+      const current = this.toIncident(incidentRef.id, incident);
       if (incident.status === 'resolved') {
         throw new ConflictException('This incident is already resolved.');
       }
@@ -188,5 +216,73 @@ export class StationsService {
     });
 
     return acknowledged;
+  }
+
+  async listIncidents(
+    stationId: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<AuthorityIncidentPage> {
+    const incidents = this.firestore.collection('authority_incidents');
+    let query = incidents
+      .where('notifiedStationIds', 'array-contains', stationId)
+      .orderBy('receivedAt', 'desc')
+      .orderBy(FieldPath.documentId(), 'desc');
+
+    if (cursor) {
+      const cursorDocument = await incidents.doc(cursor).get();
+      const cursorData = cursorDocument.data() as Partial<AuthorityIncident> | undefined;
+      const cursorIncident = cursorData
+        ? this.toIncident(cursorDocument.id, cursorData)
+        : undefined;
+      if (
+        !cursorDocument.exists ||
+        !cursorIncident ||
+        !this.isNotifiedStation(cursorIncident, stationId)
+      ) {
+        throw new BadRequestException('The incident cursor is invalid.');
+      }
+      query = query.startAfter(cursorDocument);
+    }
+
+    const snapshot = await query.limit(limit + 1).get();
+    const hasMore = snapshot.docs.length > limit;
+    const pageDocuments = snapshot.docs.slice(0, limit);
+    const data = pageDocuments
+      .map((doc) => this.toIncident(doc.id, doc.data() as Partial<AuthorityIncident>))
+      .filter((incident) => this.isNotifiedStation(incident, stationId));
+    return {
+      data,
+      nextCursor: hasMore ? (pageDocuments.at(-1)?.id ?? null) : null,
+    };
+  }
+
+  async markIncidentRead(
+    incidentId: string,
+    stationId: string,
+    actorUid: string,
+  ): Promise<AuthorityIncident> {
+    const incidentRef = this.firestore.collection('authority_incidents').doc(incidentId);
+    return this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(incidentRef);
+      const data = snapshot.data() as Partial<AuthorityIncident> | undefined;
+      if (!snapshot.exists || !data) {
+        throw new NotFoundException('Incident not found.');
+      }
+
+      const incident = this.toIncident(incidentRef.id, data);
+      if (!this.isNotifiedStation(incident, stationId)) {
+        throw new ForbiddenException('This station is not a notified recipient for the incident.');
+      }
+
+      const next: AuthorityIncident = {
+        ...incident,
+        readAt: new Date().toISOString(),
+        readByUid: actorUid,
+        revision: (incident.revision ?? 0) + 1,
+      };
+      transaction.set(incidentRef, next, { merge: true });
+      return next;
+    });
   }
 }

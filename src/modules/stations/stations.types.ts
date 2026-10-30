@@ -42,12 +42,20 @@ export type AuthorityIncident = {
     police: string | null;
   };
   notifiedRecipients: StationRecipient[];
+  notifiedStationIds: string[];
   leadStationId: string | null;
   acknowledgedAt: string | null;
   acknowledgedByUid: string | null;
+  readAt: string | null;
+  readByUid: string | null;
   callbackNumber: string | null;
   riderName: string | null;
   vehicleSummary: string | null;
   emergencyContactSummary: string | null;
   reportSummary: string | null;
+};
+
+export type AuthorityIncidentPage = {
+  data: AuthorityIncident[];
+  nextCursor: string | null;
 };
