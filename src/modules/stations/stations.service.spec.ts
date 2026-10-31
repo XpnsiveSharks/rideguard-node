@@ -66,6 +66,7 @@ function makeFirestore(seed: Record<string, Data>) {
       }
       if (max !== undefined) entries = entries.slice(0, max);
       return Promise.resolve({
+        empty: entries.length === 0,
         docs: entries.map(([path, data]) => ({
           id: path.slice(name.length + 1),
           data: () => data,
@@ -342,6 +343,19 @@ describe('StationsService', () => {
     const legacy = newIncident();
     delete legacy.readReceipts;
     const { firestore } = makeFirestore({
+      'authority_incidents/incident-stale-index': {
+        ...legacy,
+        sosId: 'sos-stale-index',
+        receivedAt: '2026-10-29T03:00:00.000Z',
+        notifiedRecipients: [
+          {
+            stationId: 'station-b',
+            stationName: 'North Fairview Police Station',
+            reasons: ['police'],
+            notifiedAt: '2026-10-29T03:00:00.000Z',
+          },
+        ],
+      },
       'authority_incidents/incident-2': {
         ...legacy,
         sosId: 'sos-2',

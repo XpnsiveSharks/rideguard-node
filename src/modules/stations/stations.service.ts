@@ -247,11 +247,12 @@ export class StationsService {
     cursor?: string,
   ): Promise<AuthorityIncidentPage> {
     const incidents = this.firestore.collection('authority_incidents');
-    let query = incidents
+    const query = incidents
       .where('notifiedStationIds', 'array-contains', stationId)
       .orderBy('receivedAt', 'desc')
       .orderBy(FieldPath.documentId(), 'desc');
 
+    let pageQuery = query;
     if (cursor) {
       const cursorDocument = await incidents.doc(cursor).get();
       const cursorData = cursorDocument.data() as StoredAuthorityIncident | undefined;
@@ -265,18 +266,36 @@ export class StationsService {
       ) {
         throw new BadRequestException('The incident cursor is invalid.');
       }
-      query = query.startAfter(cursorDocument);
+      pageQuery = query.startAfter(cursorDocument);
     }
 
-    const snapshot = await query.limit(limit + 1).get();
-    const hasMore = snapshot.docs.length > limit;
-    const pageDocuments = snapshot.docs.slice(0, limit);
-    const data = pageDocuments
-      .map((doc) => this.toIncident(doc.id, doc.data() as StoredAuthorityIncident, stationId))
-      .filter((incident) => this.isNotifiedStation(incident, stationId));
+    const matching: Array<{ id: string; incident: AuthorityIncident }> = [];
+    while (matching.length <= limit) {
+      const remaining = limit + 1 - matching.length;
+      const snapshot = await pageQuery.limit(remaining).get();
+      if (snapshot.empty) break;
+
+      for (const document of snapshot.docs) {
+        const incident = this.toIncident(
+          document.id,
+          document.data() as StoredAuthorityIncident,
+          stationId,
+        );
+        if (this.isNotifiedStation(incident, stationId)) {
+          matching.push({ id: document.id, incident });
+          if (matching.length > limit) break;
+        }
+      }
+
+      if (matching.length > limit || snapshot.docs.length < remaining) break;
+      pageQuery = query.startAfter(snapshot.docs.at(-1)!);
+    }
+
+    const hasMore = matching.length > limit;
+    const page = matching.slice(0, limit);
     return {
-      data,
-      nextCursor: hasMore ? (pageDocuments.at(-1)?.id ?? null) : null,
+      data: page.map(({ incident }) => incident),
+      nextCursor: hasMore ? (page.at(-1)?.id ?? null) : null,
     };
   }
 
