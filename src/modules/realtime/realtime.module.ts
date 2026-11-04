@@ -5,10 +5,12 @@ import { InferenceHandlingService } from './service/inference-handling.service';
 import { ButtonHandlingService } from './service/button-handling.service';
 import { CaptureHandlingService } from './service/capture-handling.service';
 import { AlertsModule } from '../alerts/alerts.module';
+import { SosModule } from '../sos/sos.module';
+import { DevicesModule } from '../devices/devices.module';
 import { RealtimePublisherService } from './service/realtime-publishing.service';
 
 @Module({
-  imports: [AlertsModule],
+  imports: [AlertsModule, SosModule, DevicesModule],
   controllers: [RealtimeController],
   providers: [
     RealtimePublisherService,

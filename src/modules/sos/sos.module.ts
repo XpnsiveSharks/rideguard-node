@@ -20,5 +20,6 @@ import { SOS_EMAIL_SENDER, NodemailerSosEmailSender } from '@/infra/email/sos-em
     NodemailerSosEmailSender,
     { provide: SOS_EMAIL_SENDER, useExisting: NodemailerSosEmailSender },
   ],
+  exports: [SosService],
 })
 export class SosModule {}
