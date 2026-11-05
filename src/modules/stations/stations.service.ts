@@ -7,10 +7,21 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import type { Firestore } from 'firebase-admin/firestore';
+import { FieldPath, type Firestore } from 'firebase-admin/firestore';
 import { FIREBASE_FIRESTORE } from '@/infra/firebase/firebase.constants';
 import { resolveStationRecipients } from './stations.routing';
-import type { AuthorityIncident, Station, StationLocation } from './stations.types';
+import type {
+  AuthorityIncident,
+  AuthorityIncidentDocument,
+  AuthorityIncidentPage,
+  Station,
+  StationLocation,
+} from './stations.types';
+
+type StoredAuthorityIncident = Partial<AuthorityIncidentDocument> & {
+  readAt?: string | null;
+  readByUid?: string | null;
+};
 
 export type ProjectIncidentInput = {
   sosId: string;
@@ -30,6 +41,34 @@ export type ProjectIncidentInput = {
 export class StationsService {
   constructor(@Inject(FIREBASE_FIRESTORE) private readonly firestore: Firestore) {}
 
+  private toIncident(
+    id: string,
+    data: StoredAuthorityIncident,
+    stationId?: string,
+  ): AuthorityIncident {
+    const notifiedRecipients = data.notifiedRecipients ?? [];
+    const receipt = stationId ? data.readReceipts?.[stationId] : undefined;
+    const {
+      readReceipts: _readReceipts,
+      readAt: _legacyReadAt,
+      readByUid: _legacyReadByUid,
+      ...incident
+    } = data;
+    return {
+      ...incident,
+      id,
+      notifiedRecipients,
+      notifiedStationIds:
+        data.notifiedStationIds ?? notifiedRecipients.map((recipient) => recipient.stationId),
+      readAt: receipt?.readAt ?? null,
+      readByUid: receipt?.readByUid ?? null,
+    } as AuthorityIncident;
+  }
+
+  private isNotifiedStation(incident: AuthorityIncident, stationId: string): boolean {
+    return incident.notifiedRecipients.some((recipient) => recipient.stationId === stationId);
+  }
+
   resolveRecipients({
     stations,
     location,
@@ -44,7 +83,7 @@ export class StationsService {
     return resolveStationRecipients({ stations, location, coverageLabels, notifiedAt });
   }
 
-  projectIncident(input: ProjectIncidentInput): AuthorityIncident {
+  projectIncident(input: ProjectIncidentInput): AuthorityIncidentDocument {
     const receivedAt = input.receivedAt ?? new Date().toISOString();
 
     if (!input.location) {
@@ -59,7 +98,7 @@ export class StationsService {
     });
 
     const incidentId = `incident-${input.sosId}`;
-    const nextIncident: AuthorityIncident = {
+    const nextIncident: AuthorityIncidentDocument = {
       id: incidentId,
       sosId: input.sosId,
       revision: 1,
@@ -72,9 +111,11 @@ export class StationsService {
         police: recipients.find((r) => r.reasons.includes('police'))?.stationName ?? null,
       },
       notifiedRecipients: recipients,
+      notifiedStationIds: recipients.map((recipient) => recipient.stationId),
       leadStationId: null,
       acknowledgedAt: null,
       acknowledgedByUid: null,
+      readReceipts: {},
       callbackNumber: input.callbackNumber ?? null,
       riderName: input.riderName ?? null,
       vehicleSummary: input.vehicleSummary ?? null,
@@ -139,15 +180,15 @@ export class StationsService {
         transaction.get(stationRef),
       ]);
 
-      const incident = incidentSnapshot.data() as Partial<AuthorityIncident> | undefined;
+      const incident = incidentSnapshot.data() as StoredAuthorityIncident | undefined;
       const station = stationSnapshot.data() as Partial<Station> | undefined;
 
       if (!incident) {
         throw new NotFoundException('Incident not found.');
       }
 
-      const current = incident as AuthorityIncident;
-      if (incident.status === 'resolved') {
+      const current = this.toIncident(incidentRef.id, incident, input.stationId);
+      if (current.status === 'resolved') {
         throw new ConflictException('This incident is already resolved.');
       }
       if (current.leadStationId && current.leadStationId !== input.stationId) {
@@ -183,10 +224,120 @@ export class StationsService {
         acknowledgedByUid: input.actorUid,
       };
 
-      transaction.set(incidentRef, next, { merge: true });
+      transaction.set(
+        incidentRef,
+        {
+          revision: next.revision,
+          status: next.status,
+          leadStationId: next.leadStationId,
+          acknowledgedAt: next.acknowledgedAt,
+          acknowledgedByUid: next.acknowledgedByUid,
+        },
+        { merge: true },
+      );
       return next;
     });
 
     return acknowledged;
+  }
+
+  async listIncidents(
+    stationId: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<AuthorityIncidentPage> {
+    const incidents = this.firestore.collection('authority_incidents');
+    const query = incidents
+      .where('notifiedStationIds', 'array-contains', stationId)
+      .orderBy('receivedAt', 'desc')
+      .orderBy(FieldPath.documentId(), 'desc');
+
+    let pageQuery = query;
+    if (cursor) {
+      const cursorDocument = await incidents.doc(cursor).get();
+      const cursorData = cursorDocument.data() as StoredAuthorityIncident | undefined;
+      const cursorIncident = cursorData
+        ? this.toIncident(cursorDocument.id, cursorData, stationId)
+        : undefined;
+      if (
+        !cursorDocument.exists ||
+        !cursorIncident ||
+        !this.isNotifiedStation(cursorIncident, stationId)
+      ) {
+        throw new BadRequestException('The incident cursor is invalid.');
+      }
+      pageQuery = query.startAfter(cursorDocument);
+    }
+
+    const matching: Array<{ id: string; incident: AuthorityIncident }> = [];
+    while (matching.length <= limit) {
+      const remaining = limit + 1 - matching.length;
+      const snapshot = await pageQuery.limit(remaining).get();
+      if (snapshot.empty) break;
+
+      for (const document of snapshot.docs) {
+        const incident = this.toIncident(
+          document.id,
+          document.data() as StoredAuthorityIncident,
+          stationId,
+        );
+        if (this.isNotifiedStation(incident, stationId)) {
+          matching.push({ id: document.id, incident });
+          if (matching.length > limit) break;
+        }
+      }
+
+      if (matching.length > limit || snapshot.docs.length < remaining) break;
+      pageQuery = query.startAfter(snapshot.docs.at(-1)!);
+    }
+
+    const hasMore = matching.length > limit;
+    const page = matching.slice(0, limit);
+    return {
+      data: page.map(({ incident }) => incident),
+      nextCursor: hasMore ? (page.at(-1)?.id ?? null) : null,
+    };
+  }
+
+  async markIncidentRead(
+    incidentId: string,
+    stationId: string,
+    actorUid: string,
+  ): Promise<AuthorityIncident> {
+    const incidentRef = this.firestore.collection('authority_incidents').doc(incidentId);
+    return this.firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(incidentRef);
+      const data = snapshot.data() as StoredAuthorityIncident | undefined;
+      if (!snapshot.exists || !data) {
+        throw new NotFoundException('Incident not found.');
+      }
+
+      const incident = this.toIncident(incidentRef.id, data, stationId);
+      if (!this.isNotifiedStation(incident, stationId)) {
+        throw new ForbiddenException('This station is not a notified recipient for the incident.');
+      }
+
+      const readReceipt = {
+        readAt: new Date().toISOString(),
+        readByUid: actorUid,
+      };
+      const next: AuthorityIncident = {
+        ...incident,
+        ...readReceipt,
+        revision: (incident.revision ?? 0) + 1,
+      };
+      transaction.set(
+        incidentRef,
+        {
+          readReceipts: {
+            ...(data.readReceipts ?? {}),
+            [stationId]: readReceipt,
+          },
+          revision: next.revision,
+        },
+        { merge: true },
+      );
+      return next;
+    });
   }
 }

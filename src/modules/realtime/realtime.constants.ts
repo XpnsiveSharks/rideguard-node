@@ -7,6 +7,9 @@ export const REALTIME_CHANNELS = {
   alertsForUser: (userId: string): string =>
     `rideguard:alerts:user:${encodeURIComponent(userId)}:device:*`,
 
+  sos: (userId: string): string =>
+    `rideguard:sos:user:${encodeURIComponent(userId)}`,
+
   inferenceResults: 'rideguard-inference-results',
 
   captureImages: 'rideguard-capture-images',
@@ -26,3 +29,7 @@ export const BUTTON_EVENT_NAMES = [
   'button.press_started',
   'button.press_released',
 ] as const;
+
+export const SOS_EVENTS = {
+  SOS_UPDATED: 'sos.updated',
+} as const;
