@@ -7,13 +7,14 @@ import { TokenRequest } from 'ably';
 import { Public } from '@/common/decorators/public.decorator';
 import { Throttle } from '@nestjs/throttler';
 import {
-  ChangePasswordDto,
+  ConfirmChangePasswordDto,
   DeleteAccountDto,
   EnrollPhoneKeyDto,
   ForgotPasswordDto,
   LoginDto,
   PhoneAuthChallengeDto,
   RegisterDto,
+  RequestChangePasswordDto,
   ResendVerificationCodeDto,
   RevokePhoneKeyDto,
   UpdateOnboardingDto,
@@ -89,14 +90,24 @@ export class AuthController {
     return this.authService.forgotPassword(body);
   }
 
-  // POST /auth/change-password; JSON currentPassword + newPassword (authenticated).
-  @Post('change-password')
+  // POST /auth/change-password/request; JSON currentPassword (authenticated).
+  @Post('change-password/request')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
+  @ResponseMessage('Verification code sent')
+  requestChangePassword(@Req() req: Request, @Body() body: RequestChangePasswordDto) {
+    const userId = req.user?.uid as string;
+    return this.authService.requestChangePassword(userId, body);
+  }
+
+  // POST /auth/change-password/confirm; JSON currentPassword + code + newPassword (authenticated).
+  @Post('change-password/confirm')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ResponseMessage('Password changed successfully')
-  changePassword(@Req() req: Request, @Body() body: ChangePasswordDto) {
+  confirmChangePassword(@Req() req: Request, @Body() body: ConfirmChangePasswordDto) {
     const userId = req.user?.uid as string;
-    return this.authService.changePassword(userId, body);
+    return this.authService.confirmChangePassword(userId, body);
   }
 
   // route: GET /auth/is-old-user

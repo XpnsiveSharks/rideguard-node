@@ -102,25 +102,92 @@ Firebase sends the password-reset link. The client or Firebase-hosted handler
 applies that link and sets the new password. RideGuard has no reset OTP or
 password-reset action-code endpoint.
 
-## POST /v1/auth/change-password
+## POST /v1/auth/change-password/request
 
-Authenticated. Verifies the current password server-side via Firebase Auth REST
-`accounts:signInWithPassword` (email from the Admin user record + current
-password + project Web API key), then updates the password with the Admin SDK
-`updateUser({ password })` and revokes refresh tokens so other sessions are
-invalidated. The request bearer token must still be a valid Firebase ID token.
-Passwords and the sign-in `idToken` are never logged or returned.
+Step 1 of the two-step password change flow. Authenticated. Verifies the current
+password server-side via Firebase Auth REST `accounts:signInWithPassword` (email
+from the Admin user record + current password + project Web API key). Never
+trusts the client.
+
+On success:
+1. Generates a secure random 6-digit numeric verification code.
+2. Hashes the code with SHA-256 (`code + uid + pepper`) and stores it in
+   Firestore (`email_verification_codes/{uid}`) with `purpose: 'change_password'`,
+   `attempts: 0`, and `expiresAt` (`VERIFICATION_CODE_TTL_MINUTES`, default 10 minutes).
+3. Enforces server-side resend cooldown (`VERIFICATION_RESEND_COOLDOWN_SECONDS`, default 60s)
+   in addition to the route `@Throttle(5 / 60s)`.
+4. Dispatches the code to the user's verified email address via Nodemailer (`MailService`).
+   Plaintext codes are never logged or returned in responses.
+
+The request bearer token must be a valid Firebase ID token for an account with
+`email_verified: true` and not scheduled for deletion.
+
+### Request Body
+
+| Field             | Type   | Required | Notes                                                    |
+| ----------------- | ------ | -------- | -------------------------------------------------------- |
+| `currentPassword` | string | Yes      | Current account password; verified via Identity Toolkit. |
+
+```json
+{
+  "currentPassword": "Password1"
+}
+```
+
+### Success Response (200)
+
+Message: `Verification code sent`
+
+```json
+{
+  "success": true,
+  "message": "Verification code sent",
+  "data": {
+    "success": true
+  },
+  "timestamp": "2026-10-30T00:00:00.000Z"
+}
+```
+
+### Errors
+
+| Status | Reason                                                                                   |
+| ------ | ---------------------------------------------------------------------------------------- |
+| `400`  | Validation failed (missing password) or user has no email address.                       |
+| `401`  | Missing/invalid Firebase bearer token, or wrong `currentPassword` (`Invalid password.`). |
+| `429`  | Resend cooldown active (`Verification code was recently sent. Try again later.`) or route throttle limit (5 / 60s). |
+
+---
+
+## POST /v1/auth/change-password/confirm
+
+Step 2 of the two-step password change flow. Authenticated. Requires the current
+password, the emailed 6-digit verification code, and the desired new password.
+
+Execution order:
+1. Rejects if `newPassword === currentPassword` (`400`).
+2. Re-verifies `currentPassword` server-side via Firebase Auth REST (`401 Invalid password.`).
+3. Verifies the single-use verification code in `email_verification_codes/{uid}`:
+   - Must exist, be unconsumed, and have `purpose: 'change_password'` (`400 Invalid verification code.`).
+   - Must not be expired against `expiresAt` (`400 Verification code has expired.`, deletes doc).
+   - Attempts must not exceed `VERIFICATION_CODE_MAX_ATTEMPTS` (5). If exceeded, deletes doc and returns `429 Too many verification attempts. Request a new code.`.
+   - On hash mismatch, increments attempt counter (or invalidates and returns `429` if limit reached).
+4. Updates password via Firebase Admin SDK `updateUser({ password: newPassword })`.
+5. Revokes all refresh tokens via `revokeRefreshTokens(uid)` so other active sessions are invalidated.
+6. Marks code as consumed and deletes the verification code document.
 
 ### Request Body
 
 | Field             | Type   | Required | Notes                                                                 |
 | ----------------- | ------ | -------- | --------------------------------------------------------------------- |
 | `currentPassword` | string | Yes      | Current account password; verified via Identity Toolkit.              |
+| `code`            | string | Yes      | Exactly 6 numeric digits received via email.                          |
 | `newPassword`     | string | Yes      | At least 8 characters, one letter, and one number (same as register). |
 
 ```json
 {
   "currentPassword": "Password1",
+  "code": "123456",
   "newPassword": "Password2"
 }
 ```
@@ -142,11 +209,11 @@ Message: `Password changed successfully`
 
 ### Errors
 
-| Status | Reason                                                                                          |
-| ------ | ----------------------------------------------------------------------------------------------- |
-| `400`  | Validation failed, new password equals current, or user has no email.                           |
-| `401`  | Missing/invalid Firebase bearer token, or wrong `currentPassword` (`Invalid password.`).        |
-| `429`  | Request exceeded the route throttle limit (5 / 60s).                                            |
+| Status | Reason                                                                                                 |
+| ------ | ------------------------------------------------------------------------------------------------------ |
+| `400`  | Validation failed, new password equals current, invalid code, expired code, or confirm without prior request. |
+| `401`  | Missing/invalid Firebase bearer token, or wrong `currentPassword` (`Invalid password.`).               |
+| `429`  | Too many wrong code attempts (limit 5) or request exceeded the route throttle limit (5 / 60s).         |
 
 Wrong current password uses **401** `UnauthorizedException` with message
 `Invalid password.`, matching `POST /auth/delete-account`. Weak `newPassword`
