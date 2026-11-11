@@ -57,9 +57,19 @@ export class DeleteAccountDto {
   password!: string;
 }
 
-export class ChangePasswordDto {
+export class RequestChangePasswordDto {
   @IsString()
   currentPassword!: string;
+}
+
+export class ConfirmChangePasswordDto {
+  @IsString()
+  currentPassword!: string;
+
+  @IsString()
+  @Length(6, 6, { message: 'code must be exactly 6 digits' })
+  @Matches(/^\d{6}$/, { message: 'code must be exactly 6 digits' })
+  code!: string;
 
   @IsString()
   @MinLength(PASSWORD_MIN_LENGTH, {
@@ -69,6 +79,12 @@ export class ChangePasswordDto {
   @Matches(/\d/, { message: 'newPassword must contain a number' })
   newPassword!: string;
 }
+
+export { RequestChangePasswordDto as ChangePasswordRequestDto };
+export { ConfirmChangePasswordDto as ChangePasswordConfirmDto };
+
+/** @deprecated Replaced by ConfirmChangePasswordDto in the two-step change password flow. */
+export class ChangePasswordDto extends ConfirmChangePasswordDto {}
 
 export class UpdateOnboardingDto {
   @IsOptional()

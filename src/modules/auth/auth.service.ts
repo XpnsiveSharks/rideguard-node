@@ -23,11 +23,13 @@ import { normalizeEmail, normalizeUsername } from './auth.validation';
 import { createHash, randomBytes, randomInt, verify } from 'node:crypto';
 import type {
   ChangePasswordDto,
+  ConfirmChangePasswordDto,
   EnrollPhoneKeyDto,
   ForgotPasswordDto,
   LoginDto,
   PhoneAuthChallengeDto,
   RegisterDto,
+  RequestChangePasswordDto,
   ResendVerificationCodeDto,
   RevokePhoneKeyDto,
   UpdateOnboardingDto,
@@ -64,6 +66,7 @@ type EmailVerificationCodeDoc = {
   createdAt: Date | { toDate(): Date };
   lastSentAt?: Date | { toDate(): Date } | null;
   consumedAt?: Date | { toDate(): Date } | null;
+  purpose?: 'registration' | 'change_password' | string;
 };
 
 @Injectable()
@@ -152,7 +155,7 @@ export class AuthService {
     const codeRef = this.firestore.collection(EMAIL_VERIFICATION_CODES_COLLECTION).doc(user.uid);
     const snapshot = await codeRef.get();
     const stored = snapshot.exists ? (snapshot.data() as EmailVerificationCodeDoc) : undefined;
-    if (!stored || stored.consumedAt) {
+    if (!stored || stored.consumedAt || (stored.purpose && stored.purpose !== 'registration')) {
       throw new BadRequestException('Invalid verification code.');
     }
 
@@ -297,19 +300,7 @@ export class AuthService {
     return { message: RESET_MESSAGE };
   }
 
-  /**
-   * Authenticated password change: verify current password via Identity Toolkit
-   * signInWithPassword (never trust the client), then Admin SDK updateUser +
-   * revokeRefreshTokens. Does not log passwords or the sign-in idToken.
-   */
-  async changePassword(
-    uid: string,
-    input: ChangePasswordDto,
-  ): Promise<{ success: true }> {
-    if (input.newPassword === input.currentPassword) {
-      throw new BadRequestException('New password must be different from the current password.');
-    }
-
+  private async verifyCurrentPassword(uid: string, password: string): Promise<string> {
     const user = await this.auth.getUser(uid);
     const email = user.email;
     if (!email) {
@@ -325,7 +316,7 @@ export class AuthService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email,
-          password: input.currentPassword,
+          password,
           returnSecureToken: true,
         }),
       },
@@ -338,10 +329,105 @@ export class AuthService {
       throw new UnauthorizedException('Invalid password.');
     }
 
+    return email;
+  }
+
+  /**
+   * Two-step password change (Step 1): verifies current password via Identity Toolkit,
+   * checks cooldown against prior codes, hashes 6-digit code with purpose 'change_password',
+   * and dispatches code to user's email via MailService.
+   */
+  async requestChangePassword(
+    uid: string,
+    input: RequestChangePasswordDto,
+  ): Promise<{ success: true }> {
+    const email = await this.verifyCurrentPassword(uid, input.currentPassword);
+
+    const codeRef = this.firestore.collection(EMAIL_VERIFICATION_CODES_COLLECTION).doc(uid);
+    const snapshot = await codeRef.get();
+    const existing = snapshot.exists ? (snapshot.data() as EmailVerificationCodeDoc) : undefined;
+    const cooldownSeconds = this.config.get('VERIFICATION_RESEND_COOLDOWN_SECONDS', { infer: true });
+    const lastSentAt = this.toDate(existing?.lastSentAt);
+    if (lastSentAt) {
+      const earliestResend = lastSentAt.getTime() + cooldownSeconds * 1000;
+      if (Date.now() < earliestResend) {
+        throw new HttpException(
+          'Verification code was recently sent. Try again later.',
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+    }
+
+    if (snapshot.exists) {
+      await codeRef.delete().catch(() => undefined);
+    }
+    await this.issueAndSendVerificationCode(uid, email, 'change_password');
+    return { success: true };
+  }
+
+  /**
+   * Two-step password change (Step 2): verifies new != current, re-verifies current password,
+   * validates 6-digit code (single-use, TTL, max attempts), updates password via Admin SDK,
+   * revokes all active refresh tokens, and deletes the verification code document.
+   */
+  async confirmChangePassword(
+    uid: string,
+    input: ConfirmChangePasswordDto,
+  ): Promise<{ success: true }> {
+    if (input.newPassword === input.currentPassword) {
+      throw new BadRequestException('New password must be different from the current password.');
+    }
+
+    await this.verifyCurrentPassword(uid, input.currentPassword);
+
+    const codeRef = this.firestore.collection(EMAIL_VERIFICATION_CODES_COLLECTION).doc(uid);
+    const snapshot = await codeRef.get();
+    const stored = snapshot.exists ? (snapshot.data() as EmailVerificationCodeDoc) : undefined;
+    if (!stored || stored.consumedAt || stored.purpose !== 'change_password') {
+      throw new BadRequestException('Invalid verification code.');
+    }
+
+    const now = new Date();
+    const expiresAt = this.toDate(stored.expiresAt);
+    if (!expiresAt || expiresAt <= now) {
+      await codeRef.delete().catch(() => undefined);
+      throw new BadRequestException('Verification code has expired.');
+    }
+
+    const maxAttempts = this.config.get('VERIFICATION_CODE_MAX_ATTEMPTS', { infer: true });
+    if (stored.attempts >= maxAttempts) {
+      await codeRef.delete().catch(() => undefined);
+      throw new HttpException(
+        'Too many verification attempts. Request a new code.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    const expectedHash = this.hashVerificationCode(input.code, uid);
+    if (stored.codeHash !== expectedHash) {
+      const nextAttempts = stored.attempts + 1;
+      if (nextAttempts >= maxAttempts) {
+        await codeRef.delete().catch(() => undefined);
+        throw new HttpException(
+          'Too many verification attempts. Request a new code.',
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+      await codeRef.set({ attempts: nextAttempts }, { merge: true });
+      throw new BadRequestException('Invalid verification code.');
+    }
+
     await this.auth.updateUser(uid, { password: input.newPassword });
     await this.auth.revokeRefreshTokens(uid);
+    await codeRef.set({ consumedAt: now }, { merge: true }).catch(() => undefined);
+    await codeRef.delete().catch(() => undefined);
 
     return { success: true };
+  }
+
+  /** @deprecated Use requestChangePassword and confirmChangePassword. */
+  async changePassword(uid: string, input: ConfirmChangePasswordDto): Promise<{ success: true }> {
+    return this.confirmChangePassword(uid, input);
   }
 
   // *** VERIFY FIREBASE ID TOKEN ***
@@ -384,7 +470,11 @@ export class AuthService {
     return createHash('sha256').update(`${code}${uid}${pepper}`, 'utf8').digest('hex');
   }
 
-  private async issueAndSendVerificationCode(uid: string, email: string): Promise<void> {
+  private async issueAndSendVerificationCode(
+    uid: string,
+    email: string,
+    purpose: 'registration' | 'change_password' = 'registration',
+  ): Promise<void> {
     const ttlMinutes = this.config.get('VERIFICATION_CODE_TTL_MINUTES', { infer: true });
     const now = new Date();
     const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
@@ -397,6 +487,7 @@ export class AuthService {
       createdAt: now,
       lastSentAt: null,
       consumedAt: null,
+      purpose,
     });
 
     await this.mail.sendVerificationCode(email, code);
@@ -463,30 +554,7 @@ export class AuthService {
     uid: string,
     password: string,
   ): Promise<{ scheduled: boolean; deletionScheduledAt: string }> {
-    const user = await this.auth.getUser(uid);
-    const email = user.email;
-    if (!email) {
-      throw new BadRequestException('User does not have an associated email address.');
-    }
-
-    const response = await fetch(
-      `${this.config.get('FIREBASE_AUTH_API_BASE_URL', { infer: true })}/accounts:signInWithPassword?key=${encodeURIComponent(
-        this.config.get('FIREBASE_WEB_API_KEY', { infer: true }),
-      )}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, returnSecureToken: true }),
-      },
-    );
-    const body = (await response.json().catch(() => null)) as {
-      localId?: string;
-      email?: string;
-    } | null;
-
-    if (!response.ok || !body?.localId || body.localId !== uid) {
-      throw new UnauthorizedException('Invalid password.');
-    }
+    await this.verifyCurrentPassword(uid, password);
 
     const graceDays = this.config.get('ACCOUNT_DELETION_GRACE_DAYS', { infer: true }) ?? 30;
     const deletionScheduledAt = new Date(Date.now() + graceDays * 24 * 60 * 60 * 1000);
